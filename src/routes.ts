@@ -362,9 +362,6 @@ export default function (
     router.post(
       '/request-deletion',
       passport.authenticate('bearer', { session: false }),
-      (req: Request, res: Response, next: NextFunction) => {
-        loginLocal(req, res, next);
-      },
       (req: SlRequest, res: Response, next: NextFunction) => {
         if (req.body.reason && typeof req.body.reason !== 'string') {
           return res.sendStatus(400);

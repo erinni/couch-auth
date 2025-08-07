@@ -20,6 +20,11 @@ export const defaultConfig: Config = {
       'forgot-username'
     ],
     forwardErrors: false,
+    /**
+     * A higher value means more security, but it will be slower.
+     * @see https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
+     */
+    iterations: [[1, 100000]]
   },
   local: {
     passwordConstraints: {

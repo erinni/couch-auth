@@ -26,6 +26,12 @@ const exampleConfig = {
     sessionLife: 86400,
     // The amount of time a password reset token is valid for
     tokenLife: 86400,
+    // Number of iterations for pbkdf2 password hashing. A higher value means more security, but it will be slower.
+    // @see https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
+    // The first entry is the timestamp, the second number the number of iterations that should be used from this timestamp
+    // until the next timestamp in the array is reached.
+    // Default: [[1, 100000]]
+    iterations: [[1, 100000]],
     // The maximum number of entries in the activity log in each user doc. Zero to disable completely
     userActivityLogSize: 10,
     // If set to true, the user will be logged in automatically after registering
