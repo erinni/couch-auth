@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import { Request } from 'express';
 import { DocumentScope, ServerScope } from 'nano';
 import URLSafeBase64 from 'urlsafe-base64';
-import { v4 as uuidv4 } from 'uuid';
 import { Config, DBServerConfig, SessionConfigEntry } from './types/config';
 import { ConsentRequest, ConsentSlEntry, SlUserDoc } from './types/typings';
 
@@ -11,9 +10,15 @@ import { ConsentRequest, ConsentSlEntry, SlUserDoc } from './types/typings';
 export const EMAIL_REGEXP =
   /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 export const USER_REGEXP = /^[a-z0-9_-]{3,16}$/;
+export const UUID_REGEXP =
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
+
+export function isUUID(str: string): boolean {
+  return typeof str === 'string' && UUID_REGEXP.test(str);
+}
 
 export function URLSafeUUID(): string {
-  return URLSafeBase64.encode(Buffer.from(uuidv4().replace(/-/g, ''), 'hex'));
+  return URLSafeBase64.encode(Buffer.from(crypto.randomUUID().replace(/-/g, ''), 'hex'));
 }
 
 export function getSessionKey(): string {

@@ -4,7 +4,7 @@ import nano, { DocumentScope } from 'nano';
 import { join } from 'path';
 import sinon from 'sinon';
 import request from 'superagent';
-import { v4 as uuidv4, validate as isUUID } from 'uuid';
+import { randomUUID } from 'crypto';
 import { ConfigHelper as Configure } from '../src/config/configure';
 import seed from '../src/design/seed';
 import { Mailer } from '../src/mailer';
@@ -14,6 +14,7 @@ import {
   addProvidersToDesignDoc,
   getDBURL,
   hyphenizeUUID,
+  isUUID,
   timeoutPromise
 } from '../src/util';
 import { config } from './test.config';
@@ -1311,9 +1312,9 @@ describe('User Model', async function () {
       emails: [{ value: 'misterx99@example.com' }]
     };
     const docs = [
-      { _id: uuidv4(), key: 'misterx1' },
-      { _id: uuidv4(), key: 'misterx2' },
-      { _id: uuidv4(), key: 'misterx4' }
+      { _id: randomUUID(), key: 'misterx1' },
+      { _id: randomUUID(), key: 'misterx2' },
+      { _id: randomUUID(), key: 'misterx4' }
     ];
 
     return previous
@@ -1367,7 +1368,7 @@ describe('User Model', async function () {
 
   it('should clean all expired sessions', function () {
     const now = Date.now();
-    testUserUUID = uuidv4();
+    testUserUUID = randomUUID();
     const testUser = {
       _id: testUserUUID,
       key: 'testuser',

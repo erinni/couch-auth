@@ -1,5 +1,4 @@
 import { DocumentScope } from 'nano';
-import { validate as isUUID } from 'uuid';
 import { Config } from '../types/config';
 import { SlUserDoc, UserAction, UserActivity } from '../types/typings';
 import {
@@ -7,6 +6,7 @@ import {
   EMAIL_REGEXP,
   generateSlUserKey,
   hyphenizeUUID,
+  isUUID,
   removeHyphens,
   USER_REGEXP
 } from '../util';

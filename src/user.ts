@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import { Request } from 'express';
 import { DocumentScope, ServerScope } from 'nano';
 import url from 'url';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { DBAuth } from './dbauth';
 import { Mailer } from './mailer';
 import { SessionHashing } from './session-hashing';
@@ -428,7 +428,7 @@ export class User {
   }
 
   private async prepareNewUser(newUser: Partial<SlUserNew>) {
-    const uid = uuidv4();
+    const uid = randomUUID();
     // todo: remove, this is just for backwards compat...
     if (this.config.local.sendNameAndUUID) {
       newUser.user_uid = uid;
@@ -568,7 +568,7 @@ export class User {
     }
     delete user[provider].profile._raw;
     if (newAccount) {
-      user._id = removeHyphens(uuidv4());
+      user._id = removeHyphens(randomUUID());
       user.user_uid = hyphenizeUUID(user._id);
       user = await this.addUserDBs(user as SlUserDoc);
     }

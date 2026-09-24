@@ -19,9 +19,9 @@
     "test": "mocha",
     "test:mocha": "mocha",
     "test:docker": "docker compose up --build test",
-    "build": "node_modules/typescript/bin/tsc",
-    "lint": "node_modules/typescript/bin/tsc --noEmit && eslint \"**/*.{js,ts}\" --quiet --fix",
-    "prepare": "node_modules/typescript/bin/tsc"
+    "build": "tsc",
+    "lint": "tsc --noEmit && eslint \"**/*.{js,ts}\" --quiet --fix",
+    "prepare": "tsc"
   },
   "keywords": [
     "authentication",
@@ -60,8 +60,7 @@
     "passport": "^0.7.0",
     "passport-http-bearer-sl": "^1.0.4",
     "passport-local": "^1.0.0",
-    "urlsafe-base64": "1.0.0",
-    "uuid": "^14.0.0"
+    "urlsafe-base64": "1.0.0"
   },
   "optionalDependencies": {
     "nodemailer-stub-transport": "^1.1.0"
