@@ -2,6 +2,7 @@ import pwdModule from '@sl-nx/couch-pwd';
 import { Config } from './types/config';
 import { HashResult } from './types/typings';
 import { UserHashingLegacy } from './user-hashing-legacy';
+import { hashesEqual, URLSafeUUID } from './util';
 
 /**
  * Class for hashing and verifying sl-user passwords
@@ -14,6 +15,7 @@ export class UserHashing {
   private pbkdf2Prf: string;
   private keyLength: number;
   private saltLength: number;
+  private dummyHash: Promise<HashResult>;
 
   constructor(config: Partial<Config>) {
     this.legacy = new UserHashingLegacy(config);
@@ -62,6 +64,16 @@ export class UserHashing {
   }
 
   verifyUserPassword(hashObj: HashResult, pw: string): Promise<boolean> {
+    if (!hashObj.derived_key) {
+      // No local password (e.g. unknown user): take as long as a real
+      // verification, so the response time doesn't reveal it, then fail.
+      return this.getDummyHash()
+        .then(dummy => this.verifyUserPassword(dummy, pw))
+        .then(
+          () => Promise.reject(false),
+          () => Promise.reject(false)
+        );
+    }
     if (hashObj.iterations === undefined) {
       return this.legacy.verifyUserPassword(hashObj, pw);
     }
@@ -77,13 +89,24 @@ export class UserHashing {
       pwdCouch.hash(pw, salt, (err, hash) => {
         if (err) {
           return reject(err);
-        } else if (hash !== derived_key) {
+        } else if (!hashesEqual(hash, derived_key)) {
           return reject(false);
         } else {
           return resolve(true);
         }
       });
     });
+  }
+
+  /** Hash of a random password, made with the current parameters. */
+  private getDummyHash(): Promise<HashResult> {
+    if (!this.dummyHash) {
+      this.dummyHash = this.hashUserPassword(URLSafeUUID()).catch(err => {
+        this.dummyHash = undefined;
+        throw err;
+      });
+    }
+    return this.dummyHash;
   }
 
   private static createPwdModule(iterations: number, keyLength: number, saltLength: number, digest: string): pwdModule {

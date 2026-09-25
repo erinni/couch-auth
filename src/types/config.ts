@@ -127,8 +127,22 @@ export interface SecurityConfig {
    * forward to the express error mechanism (`next(err)`)
    */
   forwardErrors?: boolean;
-  loginRateLimit?: ExpressSlowDownOptions;
-  passwordResetRateLimit?: ExpressSlowDownOptions;
+  /**
+   * Number of failed logins after which the account is locked for
+   * `lockoutTime`. Failures count while they are less than `lockoutTime` apart.
+   * Default: `undefined`, no lockout.
+   */
+  maxFailedLogins?: number;
+  /** Seconds the account stays locked after `maxFailedLogins`. Default: 600 */
+  lockoutTime?: number;
+  loginRateLimit?: Partial<ExpressSlowDownOptions>;
+  /**
+   * Additional `/login` rate limit per client IP, off unless set. Behind a
+   * reverse proxy, set express' `trust proxy` first: otherwise all requests
+   * share the proxy's IP.
+   */
+  loginRateLimitPerIp?: Partial<ExpressSlowDownOptions>;
+  passwordResetRateLimit?: Partial<ExpressSlowDownOptions>;
 }
 
 export interface LengthConstraint {

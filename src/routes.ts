@@ -1,7 +1,7 @@
 'use strict';
 import { NextFunction, Request, Response, Router } from 'express';
 import { Authenticator } from 'passport';
-import slowDown from 'express-slow-down';
+import slowDown, { Options as SlowDownOptions } from 'express-slow-down';
 import { Config } from './types/config';
 import { SlRequest } from './types/typings';
 import { User, ValidErr } from './user';
@@ -39,31 +39,49 @@ export default function (
     })(req, res, next);
   }
 
-  if (!disabled.includes('login')) {
-    const speedLimiter = slowDown({
-      windowMs: config.security.loginRateLimit?.windowMs || 5 * 60 * 1000,
-      delayAfter: config.security.loginRateLimit?.delayAfter || 3,
+  /**
+   * Slows down repeated requests for the same username, or for the same client
+   * IP if `byIp` (express-slow-down's default key).
+   */
+  function createSpeedLimiter(
+    options: Partial<SlowDownOptions> = {},
+    byIp = false
+  ) {
+    const usernameField = config.local.usernameField || 'username';
+    return slowDown({
+      windowMs: options.windowMs ?? 5 * 60 * 1000,
+      delayAfter: options.delayAfter ?? 3,
       delayMs: (used, req, res) => {
-        const delay = config.security.loginRateLimit?.delayMs || 500;
+        const delay = options.delayMs ?? 500;
         return typeof delay === 'function' ? delay(used, req, res) : delay;
       },
-      maxDelayMs: config.security.loginRateLimit?.maxDelayMs || 10000,
-      skipSuccessfulRequests:
-        config.security.loginRateLimit?.skipSuccessfulRequests || true,
-      skipFailedRequests:
-        config.security.loginRateLimit?.skipFailedRequests || false,
-      keyGenerator: function (req) {
-        const usernameField = config.local.usernameField || 'username';
-
-        return req.body[usernameField];
-      },
-      store: config.security.loginRateLimit?.store || undefined,
-      headers: config.security.loginRateLimit?.headers || false
+      maxDelayMs: options.maxDelayMs ?? 10000,
+      skipSuccessfulRequests: options.skipSuccessfulRequests ?? true,
+      skipFailedRequests: options.skipFailedRequests ?? false,
+      ...(byIp
+        ? {}
+        : {
+            keyGenerator: (req: Request) =>
+              String(req.body?.[usernameField] ?? '')
+                .trim()
+                .toLowerCase()
+          }),
+      store: options.store,
+      headers: options.headers ?? false
     });
+  }
+
+  if (!disabled.includes('login')) {
+    const speedLimiters = [createSpeedLimiter(config.security.loginRateLimit)];
+    if (config.security.loginRateLimitPerIp) {
+      speedLimiters.push(
+        createSpeedLimiter(config.security.loginRateLimitPerIp, true)
+      );
+    }
 
     router.post(
       '/login',
-      speedLimiter,
+      ...speedLimiters,
       function (req, res, next) {
         loginLocal(req, res, next);
       },
@@ -232,27 +250,9 @@ export default function (
     );
 
   if (!disabled.includes('password-reset')) {
-    const speedLimiter = slowDown({
-      windowMs:
-        config.security.passwordResetRateLimit?.windowMs || 5 * 60 * 1000,
-      delayAfter: config.security.passwordResetRateLimit?.delayAfter || 3,
-      delayMs: (used, req, res) => {
-        const delay = config.security.passwordResetRateLimit?.delayMs || 500;
-        return typeof delay === 'function' ? delay(used, req, res) : delay;
-      },
-      maxDelayMs: config.security.passwordResetRateLimit?.maxDelayMs || 10000,
-      skipSuccessfulRequests:
-        config.security.passwordResetRateLimit?.skipSuccessfulRequests || true,
-      skipFailedRequests:
-        config.security.passwordResetRateLimit?.skipFailedRequests || false,
-      keyGenerator: function (req) {
-        const usernameField = config.local.usernameField || 'username';
-
-        return req.body[usernameField];
-      },
-      store: config.security.passwordResetRateLimit?.store || undefined,
-      headers: config.security.passwordResetRateLimit?.headers || false
-    });
+    const speedLimiter = createSpeedLimiter(
+      config.security.passwordResetRateLimit
+    );
 
     router.post(
       '/password-reset',

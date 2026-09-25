@@ -2,6 +2,7 @@
 import pwdModule from '@sl-nx/couch-pwd';
 import { Config } from './types/config';
 import { HashResult } from './types/typings';
+import { hashesEqual } from './util';
 
 export class SessionHashing {
 
@@ -58,7 +59,7 @@ export class SessionHashing {
       pwdCouch.hash(pw, salt, (err, hash) => {
         if (err) {
           return reject(err);
-        } else if (hash !== derived_key) {
+        } else if (!hashesEqual(hash, derived_key)) {
           return resolve(false);
         } else {
           return resolve(true);

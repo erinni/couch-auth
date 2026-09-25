@@ -64,6 +64,16 @@ export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+/** Compares two derived keys in constant time. */
+export function hashesEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+}
+
 export function putSecurityDoc(
   server: ServerScope,
   db: DocumentScope<any>,

@@ -1,5 +1,14 @@
 ## Change Log
 
+#### Unreleased: Login hardening
+
+- :sparkles: `security.maxFailedLogins` / `lockoutTime` now lock the account (they were documented but ignored)
+- :sparkles: optional `security.loginRateLimitPerIp` slows down one IP trying many usernames
+- :lock: logins for unknown users take as long as for existing ones (the dummy hash used the old 10 iterations)
+- :lock: password and session hashes are compared in constant time
+- :bug: `skipSuccessfulRequests: false` and `0` values in `loginRateLimit` / `passwordResetRateLimit` were ignored; the rate limit key is now the trimmed, lowercased username
+- :bug: build scripts work on Windows; `uuid` replaced by `crypto.randomUUID()`
+
 #### 0.28.0: Dependency updates
 
 - Upgraded all dependencies except typescript 6 and eslint. 

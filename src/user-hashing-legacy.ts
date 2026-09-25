@@ -1,7 +1,7 @@
 import pwdModule from '@sl-nx/couch-pwd';
 import { Config } from './types/config';
 import { HashResult, LocalHashObj } from './types/typings';
-import { URLSafeUUID } from './util';
+import { hashesEqual, URLSafeUUID } from './util';
 
 const pwd = new pwdModule();
 
@@ -73,7 +73,7 @@ export class UserHashingLegacy {
       hasher.hash(pw, salt, (err, hash) => {
         if (err) {
           return reject(err);
-        } else if (hash !== derived_key) {
+        } else if (!hashesEqual(hash, derived_key)) {
           return reject(false);
         } else {
           return resolve(true);

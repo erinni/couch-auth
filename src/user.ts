@@ -706,6 +706,7 @@ export class User {
     if (provider === 'local') {
       if (!user.local) user.local = {};
       delete user.local.failedLoginAttempts;
+      delete user.local.lastFailedLogin;
       delete user.local.lockedUntil;
     }
     const userDoc = this.userDbManager.logActivity('login', provider, user);
@@ -1006,6 +1007,40 @@ export class User {
     userDoc.local = { ...userDoc.local, ...hash };
     await this.userDB.insert(userDoc);
     return 'upgraded';
+  }
+
+  /**
+   * Returns until when the account is locked after too many failed logins,
+   * or `undefined` if it isn't locked.
+   */
+  public getLockedUntil(userDoc: SlUserDoc): number | undefined {
+    const lockedUntil = userDoc.local?.lockedUntil;
+    return lockedUntil && lockedUntil > Date.now() ? lockedUntil : undefined;
+  }
+
+  /**
+   * Counts a failed login and locks the account when `security.maxFailedLogins`
+   * is reached. Does nothing if `maxFailedLogins` isn't set.
+   */
+  public async registerFailedLogin(userDoc: SlUserDoc): Promise<void> {
+    const maxFailedLogins = this.config.security.maxFailedLogins;
+    if (!maxFailedLogins || !userDoc.local) {
+      return;
+    }
+    const lockoutMs = (this.config.security.lockoutTime ?? 600) * 1000;
+    const local = userDoc.local;
+    const now = Date.now();
+    // Start over when the last failure (or the last lock) is old enough
+    if (!local.lastFailedLogin || now - local.lastFailedLogin > lockoutMs) {
+      local.failedLoginAttempts = 0;
+      delete local.lockedUntil;
+    }
+    local.failedLoginAttempts = (local.failedLoginAttempts ?? 0) + 1;
+    local.lastFailedLogin = now;
+    if (local.failedLoginAttempts >= maxFailedLogins) {
+      local.lockedUntil = now + lockoutMs;
+    }
+    await this.userDB.insert(userDoc);
   }
 
   private async sendModifiedPasswordEmail(user: SlUserDoc, req): Promise<void> {

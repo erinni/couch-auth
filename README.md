@@ -404,6 +404,12 @@ const config {
 
 couch-auth uses [express-slow-down](https://www.npmjs.com/package/express-slow-down) under the hood, feel free to check the docs to dig deeper into configuration options.
 
+`loginRateLimit` counts requests per username. To also slow down a single client trying many usernames, add `loginRateLimitPerIp` (same options, off unless set). Behind a reverse proxy, set express' [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) first, otherwise all requests share the proxy's IP.
+
+### Account lockout
+
+Set `security.maxFailedLogins` to lock an account after that many wrong passwords, for `security.lockoutTime` seconds (default: 600). Failures count only while they are less than `lockoutTime` apart, and a successful login resets them. While the account is locked, a login with the right password gets a 401 with `lockedUntil`; a wrong password gets the usual `Invalid username or password`, so the lock doesn't reveal that the account exists.
+
 ### Important notes:
 - You won't be able to override the keyGenerator option, as we use usernameField from the config.
 - When activating rate limiting for the `/password-reset` route, `username` field is required in the request body!

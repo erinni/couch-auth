@@ -50,11 +50,16 @@ export default function (
           theuser => {
             const invalid = !theuser?.local?.derived_key;
             const hashInput = invalid ? {} : theuser.local;
+            const lockedUntil = invalid ? undefined : user.getLockedUntil(theuser);
             user.verifyPassword(hashInput, password).then(
               () => {
                 // Prevent time based attack -> still do a hashing round
                 if (invalid) {
                   return done(null, false, invalidResponse());
+                }
+                // Only who knows the password learns about the lock
+                if (lockedUntil) {
+                  return done(null, false, lockedResponse(lockedUntil));
                 }
                 // Check if the email has been confirmed if it is required
                 if (config.local.requireEmailConfirm && !theuser.email) {
@@ -76,7 +81,15 @@ export default function (
                 if (err !== false) {
                   console.warn('LocalStrategy rejected with: ', err);
                 }
-                return done(null, false, invalidResponse());
+                if (err !== false || invalid || lockedUntil) {
+                  return done(null, false, invalidResponse());
+                }
+                user
+                  .registerFailedLogin(theuser)
+                  .catch(e => {
+                    console.warn('registerFailedLogin rejected with: ', e);
+                  })
+                  .then(() => done(null, false, invalidResponse()));
               }
             );
           },
@@ -93,6 +106,14 @@ export default function (
     return {
       error: 'Unauthorized',
       message: 'Invalid username or password'
+    };
+  }
+
+  function lockedResponse(lockedUntil: number) {
+    return {
+      error: 'Unauthorized',
+      message: 'Too many failed login attempts, the account is locked',
+      lockedUntil
     };
   }
 }
