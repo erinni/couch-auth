@@ -14,6 +14,12 @@
 - :bug: setting up a user db whose `_security` members had no `roles` removed its admin roles
 - :bug: `mailer.retryOnError` didn't retry a rejected send
 - :bug: `resetPassword()` with `passwordResetRateLimit` and an unknown username rejects with 400 instead of 500
+- :lock: `/password-reset` is always slowed down per client IP, also without `passwordResetRateLimit` (which still adds the per-username limit)
+- :boom: :lock: `local.tokenLengthOnReset` must be at least 12 (72 random bits): shorter reset tokens could be guessed
+- :lock: concurrent failed logins are all counted: they conflicted on the doc's `_rev` and only one was saved, so parallel guesses got around `maxFailedLogins`
+- :lock: markdown in email templates is converted in the template's own text, before rendering: data such as the user's `name` can no longer add links (e.g. someone signing up with another person's email and a phishing link as name)
+- :lock: a password reset lifts the account lock
+- :lock: wrong current passwords on `/password-change` count towards `maxFailedLogins`; during a lock it answers 403 without checking the password. `/password-change`, `/request-deletion` and `/change-email` are slowed down per user of the session (instead of the username in the body)
 
 #### 0.29.0: Login hardening and security fixes
 

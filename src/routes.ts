@@ -36,14 +36,24 @@ export default function (
   }
 
   /**
-   * Slows down repeated requests for the same username, or for the same client
-   * IP if `byIp` (express-slow-down's default key).
+   * Slows down repeated requests for the same `key`: the username sent in the
+   * body, the client IP (express-slow-down's default) or the user of the
+   * bearer session.
    */
   function createSpeedLimiter(
     options: Partial<SlowDownOptions> = {},
-    byIp = false
+    key: 'username' | 'ip' | 'session' = 'username'
   ) {
     const usernameField = config.local.usernameField || 'username';
+    const keyGenerators = {
+      username: (req: Request) =>
+        String(req.body?.[usernameField] ?? '')
+          .trim()
+          .toLowerCase(),
+      ip: undefined,
+      // the session's `_id` is the sl-user's `key`
+      session: (req: SlRequest) => String(req.user?._id)
+    };
     return slowDown({
       windowMs: options.windowMs ?? 5 * 60 * 1000,
       delayAfter: options.delayAfter ?? 3,
@@ -54,14 +64,7 @@ export default function (
       maxDelayMs: options.maxDelayMs ?? 10000,
       skipSuccessfulRequests: options.skipSuccessfulRequests ?? true,
       skipFailedRequests: options.skipFailedRequests ?? false,
-      ...(byIp
-        ? {}
-        : {
-            keyGenerator: (req: Request) =>
-              String(req.body?.[usernameField] ?? '')
-                .trim()
-                .toLowerCase()
-          }),
+      ...(keyGenerators[key] ? { keyGenerator: keyGenerators[key] } : {}),
       store: options.store,
       headers: options.headers ?? false
     });
@@ -75,11 +78,24 @@ export default function (
     return req.user.user_uid ?? req.user._id;
   }
 
-  /** Limits for every route that checks a password sent in the body */
+  /** Limits for `/login` */
   const speedLimiters = [createSpeedLimiter(config.security.loginRateLimit)];
   if (config.security.loginRateLimitPerIp) {
     speedLimiters.push(
-      createSpeedLimiter(config.security.loginRateLimitPerIp, true)
+      createSpeedLimiter(config.security.loginRateLimitPerIp, 'ip')
+    );
+  }
+
+  /**
+   * Limits for routes that check the password of the bearer session's user:
+   * per user, whatever username the body names
+   */
+  const sessionSpeedLimiters = [
+    createSpeedLimiter(config.security.loginRateLimit, 'session')
+  ];
+  if (config.security.loginRateLimitPerIp) {
+    sessionSpeedLimiters.push(
+      createSpeedLimiter(config.security.loginRateLimitPerIp, 'ip')
     );
   }
 
@@ -93,7 +109,7 @@ export default function (
       res.locals.sessionUser = req.user;
       next();
     },
-    ...speedLimiters,
+    ...sessionSpeedLimiters,
     (req: Request, res: Response, next: NextFunction) => {
       loginLocal(req, res, next);
     },
@@ -271,9 +287,13 @@ export default function (
     );
 
   if (!disabled.includes('password-reset')) {
-    const speedLimiter = createSpeedLimiter(
-      config.security.passwordResetRateLimit
-    );
+    // per username if `passwordResetRateLimit` is set (the username is then
+    // required), always per IP: the token alone is what's being guessed
+    const resetLimit = config.security.passwordResetRateLimit;
+    const speedLimiters = [createSpeedLimiter(resetLimit, 'ip')];
+    if (resetLimit) {
+      speedLimiters.unshift(createSpeedLimiter(resetLimit));
+    }
 
     router.post(
       '/password-reset',
@@ -293,7 +313,7 @@ export default function (
 
         return next();
       },
-      speedLimiter,
+      ...speedLimiters,
       function (req: Request, res: Response, next: NextFunction) {
         user.resetPassword(req.body, req).then(
           function (currentUser) {
@@ -329,6 +349,7 @@ export default function (
     router.post(
       '/password-change',
       passport.authenticate('bearer', { session: false }),
+      ...sessionSpeedLimiters,
       function (req: SlRequest, res: Response, next: NextFunction) {
         user.changePasswordSecure(sessionLogin(req), req.body, req).then(
           function () {

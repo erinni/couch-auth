@@ -224,7 +224,10 @@ export interface LocalConfig {
   emailUsername: boolean;
   /** Also return the username when creating a session */
   sendNameAndUUID?: boolean;
-  /** If a number > 0 is set here, the token for password reset will be shortened */
+  /**
+   * If a number > 0 is set here, the token for password reset will be
+   * shortened to that many characters. Minimum: 12 (the full token has 22).
+   */
   tokenLengthOnReset?: number;
   /** Custom username field in your login form. Default: `'username'`. */
   usernameField?: string;

@@ -3,6 +3,9 @@ import { Config } from '../types/config';
 import { mergeConfig } from '../util';
 import { defaultConfig } from './default.config';
 
+/** 12 url-safe base64 characters: 72 random bits */
+const MIN_RESET_TOKEN_LENGTH = 12;
+
 export class ConfigHelper {
   // a copy: merging into `defaultConfig` would carry one instance's settings
   // over to the next one
@@ -37,6 +40,11 @@ export class ConfigHelper {
     }
 
     this.verifyBaseUrl();
+
+    const tokenLength = this.config.local?.tokenLengthOnReset;
+    if (tokenLength && tokenLength < MIN_RESET_TOKEN_LENGTH) {
+      throw `local.tokenLengthOnReset must be at least ${MIN_RESET_TOKEN_LENGTH}: shorter reset tokens can be guessed.`;
+    }
 
     if (this.config.security?.iterations) {
       const itArr = this.config.security.iterations;

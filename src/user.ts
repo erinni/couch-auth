@@ -749,9 +749,7 @@ export class User {
     // Clear any failed login attempts
     if (provider === 'local') {
       if (!user.local) user.local = {};
-      delete user.local.failedLoginAttempts;
-      delete user.local.lastFailedLogin;
-      delete user.local.lockedUntil;
+      this.clearFailedLogins(user);
     }
     const userDoc = this.userDbManager.logActivity('login', provider, user);
     // Clean out expired sessions on login
@@ -885,6 +883,8 @@ export class User {
       user.local = {};
     }
     user.local = { ...user.local, ...hash };
+    // who can reset the password may log in again at once
+    this.clearFailedLogins(user);
     if (user.providers.indexOf('local') === -1) {
       user.providers.push('local');
     }
@@ -937,7 +937,25 @@ export class User {
             status: 400
           };
         }
-        await this.verifyPassword(user.local, form.currentPassword);
+        // Checked before the password, so that the answer during a lock
+        // says nothing about it
+        if (this.getLockedUntil(user)) {
+          throw {
+            error: 'Password change failed',
+            message: 'Too many wrong passwords, try again later.',
+            status: 403
+          };
+        }
+        try {
+          await this.verifyPassword(user.local, form.currentPassword);
+        } catch (err) {
+          if (err === false) {
+            await this.registerFailedLogin(user).catch(e => {
+              console.warn('registerFailedLogin rejected with: ', e);
+            });
+          }
+          throw err;
+        }
       }
       await this.changePassword(user._id, form.newPassword, user, req);
     } catch (err) {
@@ -1068,23 +1086,44 @@ export class User {
    */
   public async registerFailedLogin(userDoc: SlUserDoc): Promise<void> {
     const maxFailedLogins = this.config.security.maxFailedLogins;
-    if (!maxFailedLogins || !userDoc.local) {
-      return;
-    }
     const lockoutMs = (this.config.security.lockoutTime ?? 600) * 1000;
-    const local = userDoc.local;
-    const now = Date.now();
-    // Start over when the last failure (or the last lock) is old enough
-    if (!local.lastFailedLogin || now - local.lastFailedLogin > lockoutMs) {
-      local.failedLoginAttempts = 0;
-      delete local.lockedUntil;
+    // Concurrent failures conflict on `_rev`: retry on the latest doc, so that
+    // parallel guesses count as many times as they are
+    for (let attempt = 1; ; attempt++) {
+      if (!maxFailedLogins || !userDoc.local) {
+        return;
+      }
+      const local = userDoc.local;
+      const now = Date.now();
+      // Start over when the last failure (or the last lock) is old enough
+      if (!local.lastFailedLogin || now - local.lastFailedLogin > lockoutMs) {
+        local.failedLoginAttempts = 0;
+        delete local.lockedUntil;
+      }
+      local.failedLoginAttempts = (local.failedLoginAttempts ?? 0) + 1;
+      local.lastFailedLogin = now;
+      if (local.failedLoginAttempts >= maxFailedLogins) {
+        local.lockedUntil = now + lockoutMs;
+      }
+      try {
+        await this.userDB.insert(userDoc);
+        return;
+      } catch (err) {
+        if (err?.statusCode !== 409 || attempt >= 10) {
+          throw err;
+        }
+        userDoc = await this.userDB.get(userDoc._id);
+      }
     }
-    local.failedLoginAttempts = (local.failedLoginAttempts ?? 0) + 1;
-    local.lastFailedLogin = now;
-    if (local.failedLoginAttempts >= maxFailedLogins) {
-      local.lockedUntil = now + lockoutMs;
+  }
+
+  /** Forgets the failed logins and lifts a lock, e.g. after a password reset */
+  private clearFailedLogins(userDoc: SlUserDoc) {
+    if (userDoc.local) {
+      delete userDoc.local.failedLoginAttempts;
+      delete userDoc.local.lastFailedLogin;
+      delete userDoc.local.lockedUntil;
     }
-    await this.userDB.insert(userDoc);
   }
 
   private async sendModifiedPasswordEmail(user: SlUserDoc, req): Promise<void> {

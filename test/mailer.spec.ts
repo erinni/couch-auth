@@ -1,9 +1,11 @@
 'use strict';
 import { expect } from 'chai';
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import sinon from 'sinon';
 import { ConfigHelper as Configure } from '../src/config/configure';
 import { Mailer } from '../src/mailer';
+import { parseCompositeTemplate } from '../src/template-utils';
 
 const mailerTestConfig = new Configure({
   testMode: {
@@ -154,5 +156,42 @@ describe('Mailer', function () {
     const second = new Configure({ testMode: { noEmail: true } });
     expect(first.config.security.maxFailedLogins).to.equal(3);
     expect(second.config.security.maxFailedLogins).to.equal(undefined);
+  });
+
+  it("doesn't turn markdown in the data into links", () => {
+    const folder = mkdtempSync(join(__dirname, 'tmp-templates-'));
+    try {
+      copyFileSync(
+        join(__dirname, '../templates/email/base.njk'),
+        join(folder, 'base.njk')
+      );
+      writeFileSync(
+        join(folder, 'promo.njk'),
+        'Hi {{ user.name }},\n\nvisit [our site]({{ data.baseUrl }}/promo) now.\n'
+      );
+      const { html, text } = parseCompositeTemplate(folder, 'promo', {
+        data: { baseUrl: 'https://example.com' },
+        user: { name: '[Reset your password](https://evil.example) **now**' }
+      });
+      expect(html).to.include('href="https://example.com/promo">our site</a>');
+      expect(html).not.to.include('href="https://evil.example"');
+      expect(html).to.include('[Reset your password](https://evil.example)');
+      expect(html).not.to.include('<b>now</b>');
+      expect(text).to.include(
+        'visit [our site](https://example.com/promo) now.'
+      );
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects reset tokens that are too short to be safe', () => {
+    const make = (tokenLengthOnReset: number) =>
+      new Configure({
+        testMode: { noEmail: true },
+        local: { tokenLengthOnReset }
+      });
+    expect(() => make(6)).to.throw(/tokenLengthOnReset/);
+    expect(() => make(12)).not.to.throw();
   });
 });

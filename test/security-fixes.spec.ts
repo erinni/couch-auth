@@ -28,6 +28,8 @@ describe('Security fixes', function () {
   const password = 'Password1!';
   const alice = 'alice@example.com';
   const bob = 'bob@example.com';
+  const carol = 'carol@example.com';
+  const dave = 'dave@example.com';
   let couchAuth: CouchAuth;
   const httpServers: http.Server[] = [];
 
@@ -47,6 +49,8 @@ describe('Security fixes', function () {
     security: {
       ...baseConfig.security,
       loginRateLimit: { delayAfter: 100 },
+      maxFailedLogins: 3,
+      lockoutTime: 600,
       userHashing: { iterations: 1000 }
     }
   };
@@ -119,6 +123,8 @@ describe('Security fixes', function () {
     );
     await signUp(alice);
     await signUp(bob);
+    await signUp(carol);
+    await signUp(dave);
   });
 
   after(async () => {
@@ -238,6 +244,80 @@ describe('Security fixes', function () {
     await deleted;
     expect(await couchAuth.getUser(alice)).to.equal(null);
     expect(await couchAuth.getUser(bob)).to.be.an('object');
+  });
+
+  it('counts concurrent failed logins, and a reset lifts the lock', async () => {
+    const attempts = [];
+    for (let i = 0; i < 5; i++) {
+      attempts.push(
+        post(`${server}/auth/login`, { username: carol, password: 'Wrong1!!' })
+      );
+    }
+    await Promise.all(attempts);
+    const local = (await couchAuth.getUser(carol)).local;
+    expect(local.failedLoginAttempts).to.equal(5);
+    expect(local.lockedUntil).to.be.greaterThan(Date.now());
+
+    const token = new Promise<string>(resolve =>
+      couchAuth.emitter.once('forgot-password', ({ token }) => resolve(token))
+    );
+    await couchAuth.forgotPassword(carol, {});
+    const newPassword = 'Password2!';
+    await couchAuth.resetPassword({
+      token: await token,
+      username: carol,
+      password: newPassword,
+      confirmPassword: newPassword
+    });
+    const doc = await couchAuth.getUser(carol);
+    expect(doc.local.lockedUntil).to.equal(undefined);
+    expect(doc.local.failedLoginAttempts).to.equal(undefined);
+    const res = await post(`${server}/auth/login`, {
+      username: carol,
+      password: newPassword
+    });
+    expect(res.status).to.equal(200);
+  });
+
+  it('counts wrong current passwords on password change', async () => {
+    const session = await login(dave);
+    const change = (currentPassword: string) =>
+      post(
+        `${server}/auth/password-change`,
+        {
+          currentPassword,
+          newPassword: 'Password2!',
+          confirmPassword: 'Password2!'
+        },
+        session
+      );
+    for (let i = 0; i < 3; i++) {
+      expect((await change('Wrong1!!')).status).to.equal(400);
+    }
+    expect((await couchAuth.getUser(dave)).local.failedLoginAttempts).to.equal(
+      3
+    );
+    // locked: the right password gets the same answer as a wrong one
+    const right = await change(password);
+    const wrong = await change('Wrong1!!');
+    expect(right.status).to.equal(403);
+    expect(right.body).to.deep.equal(wrong.body);
+  });
+
+  it('slows down password reset guesses from one IP by default', async () => {
+    const reset = (i: number) =>
+      post(`${server}/auth/password-reset`, {
+        token: 'guess' + i,
+        username: `nobody${i}@example.com`,
+        password: 'Password2!',
+        confirmPassword: 'Password2!'
+      });
+    for (let i = 0; i < 3; i++) {
+      expect((await reset(i)).status).to.equal(400);
+    }
+    const start = Date.now();
+    await reset(3);
+    expect(Date.now() - start).to.be.greaterThan(400);
   });
 
   it('keeps the admin roles when the members have none', async () => {

@@ -409,9 +409,13 @@ couch-auth uses [express-slow-down](https://www.npmjs.com/package/express-slow-d
 
 `loginRateLimit` counts requests per username. To also slow down a single client trying many usernames, add `loginRateLimitPerIp` (same options, off unless set). Behind a reverse proxy, set express' [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) first, otherwise all requests share the proxy's IP.
 
+`/password-reset` is always slowed down per client IP (with the `passwordResetRateLimit` options, or the defaults above): what's guessed there is the token, not a username. With `passwordResetRateLimit`, it's slowed down per username as well. `local.tokenLengthOnReset` can't be less than 12.
+
+`/password-change`, `/request-deletion` and `/change-email` use the `loginRateLimit` options per user of the bearer session (and `loginRateLimitPerIp` per IP).
+
 ### Account lockout
 
-Set `security.maxFailedLogins` to lock an account after that many wrong passwords, for `security.lockoutTime` seconds (default: 600). Failures count only while they are less than `lockoutTime` apart, and a successful login resets them. While the account is locked, every login gets the usual 401 `Invalid username or password`, also with the right password (otherwise guessing on during the lock would reveal it), and failures don't extend the lock. The right password emits `login-locked` (`userDoc`, `lockedUntil`), e.g. to tell the user by email. The same password check and lockout, with the `loginRateLimit`s, apply to `/request-deletion` and `/change-email`.
+Set `security.maxFailedLogins` to lock an account after that many wrong passwords, for `security.lockoutTime` seconds (default: 600). Failures count only while they are less than `lockoutTime` apart, and a successful login resets them. While the account is locked, every login gets the usual 401 `Invalid username or password`, also with the right password (otherwise guessing on during the lock would reveal it), and failures don't extend the lock. The right password emits `login-locked` (`userDoc`, `lockedUntil`), e.g. to tell the user by email. The same password check and lockout apply to `/request-deletion` and `/change-email`, and wrong current passwords on `/password-change` count as well (during the lock it answers 403 without checking the password). Concurrent failures are all counted. A password reset lifts the lock.
 
 ### Important notes:
 - You won't be able to override the keyGenerator option, as we use usernameField from the config.

@@ -1,4 +1,5 @@
-import { render } from 'nunjucks';
+import { readFileSync } from 'fs';
+import { render, renderString } from 'nunjucks';
 import { join } from 'path';
 
 /**
@@ -39,8 +40,10 @@ export function parseCompositeTemplate(
   const baseTemplate = join(folderPath, base);
   const contentPath = join(folderPath, `${template}.njk`);
   const plainTextContent = render(contentPath, data);
-  const contentParagraphs = processMarkdown(plainTextContent).split('\n');
-  data.paragraphs = contentParagraphs;
+  // Markdown is converted in the template's own text, before rendering: the
+  // data (e.g. a user's name) can't add links or formatting to the email
+  const htmlSource = processMarkdown(readFileSync(contentPath, 'utf8'));
+  data.paragraphs = renderString(htmlSource, data).split('\n');
 
   return { html: render(baseTemplate, data), text: plainTextContent };
 }
