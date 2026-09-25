@@ -8,6 +8,9 @@
 - :lock: password and session hashes are compared in constant time
 - :bug: `skipSuccessfulRequests: false` and `0` values in `loginRateLimit` / `passwordResetRateLimit` were ignored; the rate limit key is now the trimmed, lowercased username
 - :bug: build scripts work on Windows; `uuid` replaced by `crypto.randomUUID()`
+- :bug: background work no longer causes unhandled rejections (which stop Node): a failed signup insert emits `signup-error`; failures of the "email exists" mail, of the email change, of expired key removal and of the design doc seeding are logged
+- :bug: `forgotPassword()` without an email rejects with 400 instead of throwing; `refreshSession()` for an unknown session rejects with 401
+- :arrow_up: nodemailer 10 (fixes a high severity advisory; needs Node 20, already required), `@types/nodemailer` dropped since nodemailer ships its own types; transitive fixes via `npm audit fix`. `validate.js` (via `@sl-nx/sofa-model`) still has an advisory without a fix
 
 #### 0.28.0: Dependency updates
 

@@ -1,7 +1,7 @@
 import { Sofa } from '@sl-nx/sofa-model';
 import { Transport } from 'nodemailer';
 import JSONTransport from 'nodemailer/lib/json-transport';
-import Mail, { Address } from 'nodemailer/lib/mailer';
+import Mail from 'nodemailer/lib/mailer';
 import SendmailTransport from 'nodemailer/lib/sendmail-transport';
 import SESTransport from 'nodemailer/lib/ses-transport';
 import SMTPTransport from 'nodemailer/lib/smtp-transport';
@@ -330,7 +330,7 @@ export interface MailerConfig {
   /** If you want to use the built in mailer or a custom one. If you want to use the custom one, you need to listen to the emitted events */
   useCustomMailer?: boolean;
   /** Email address that all your system emails will be from */
-  fromEmail: string | Address;
+  fromEmail: string | Mail.Address;
   /**
    * Use this if you want to pass an initialized `Transport` (Sendmail, SES,...)
    * instead of using SMTP with the credentials provided in `options`.

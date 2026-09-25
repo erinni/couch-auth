@@ -265,7 +265,7 @@ export class User {
   /**
    * Verifies a password using a hash object. If you have a user doc, pass in
    * `local` as the hash object.
-   * @returns resolves with `true` if valid, `false` if not
+   * @returns resolves with `true` if valid, rejects with `false` if not
    */
   public verifyPassword(obj: LocalHashObj, pw: string): Promise<boolean> {
     return this.hasher.verifyUserPassword(obj, pw);
@@ -396,7 +396,9 @@ export class User {
           if (err.email.length === 0) {
             delete err.email;
             if (Object.keys(err).length === 0) {
-              this.handleEmailExists(form.email, req);
+              this.handleEmailExists(form.email, req).catch(e => {
+                console.warn('handleEmailExists rejected with: ', e);
+              });
               doThrow = false;
             }
           }
@@ -411,20 +413,26 @@ export class User {
       }
     }
 
-    // TODO: This is an instance of the promise constructor anti-pattern
-    return new Promise(async (resolve, reject) => {
-      newUser = await this.prepareNewUser(newUser);
-      if (hasError || !this.config.security.loginOnRegistration) {
-        resolve(hasError ? undefined : (newUser as SlUserDoc));
-      }
-      if (!hasError) {
-        const finalUser = await this.insertNewUserDocument(newUser, req);
+    newUser = await this.prepareNewUser(newUser);
+    if (hasError) {
+      return undefined;
+    }
+    const inserted = this.insertNewUserDocument(newUser, req).then(
+      finalUser => {
         this.emitter.emit('signup', finalUser, 'local');
-        if (this.config.security.loginOnRegistration) {
-          resolve(finalUser);
-        }
+        return finalUser;
       }
+    );
+    if (this.config.security.loginOnRegistration) {
+      return inserted;
+    }
+    // Answer before the insert (see above): a failure can't reach the caller,
+    // so it's logged and emitted instead of becoming an unhandled rejection.
+    inserted.catch(err => {
+      console.error('createUser: could not insert ', newUser._id, err);
+      this.emitter.emit('signup-error', newUser, err);
     });
+    return newUser as SlUserDoc;
   }
 
   private async prepareNewUser(newUser: Partial<SlUserNew>) {
@@ -757,11 +765,13 @@ export class User {
   /**
    * Extends the life of your current token and returns updated token information.
    * The only field that will change is expires. Expired sessions are removed.
-   * todo:
-   * - handle error if invalid state occurs that doc is not present.
+   * Rejects with 401 if no sl-user has this session.
    */
   public async refreshSession(sessionId: string): Promise<SlRefreshSession> {
     let userDoc = await this.userDbManager.findUserDocBySession(sessionId);
+    if (!userDoc?.session?.[sessionId]) {
+      throw { error: 'Unauthorized', status: 401 };
+    }
     let minutesToExtend = this.config.security.sessionLife;
     if (userDoc.session[sessionId].sessionType) {
       minutesToExtend =
@@ -1059,7 +1069,7 @@ export class User {
    * @param req additional request data, passed to the template as `req`
    */
   public async forgotPassword(email: string, req: any): Promise<void> {
-    email = email.toLowerCase();
+    email = typeof email === 'string' ? email.toLowerCase() : '';
 
     if (!email || !email.match(EMAIL_REGEXP)) {
       return Promise.reject({ error: 'invalid email', status: 400 });
@@ -1229,7 +1239,10 @@ export class User {
         throw emailError;
       }
     }
-    this.completeEmailChange(login, newEmail, req);
+    // not awaited: answers as fast as when the email is already taken
+    this.completeEmailChange(login, newEmail, req).catch(e => {
+      console.warn('completeEmailChange rejected with: ', e);
+    });
   }
 
   /**
@@ -1433,7 +1446,9 @@ export class User {
           throw SessionHashing.invalidErr;
         }
       } else {
-        this.dbAuth.removeKeys(key);
+        this.dbAuth.removeKeys(key).catch(e => {
+          console.warn('confirmSession - could not remove expired key: ', e);
+        });
         throw SessionHashing.invalidErr;
       }
     } catch {

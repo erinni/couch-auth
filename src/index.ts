@@ -65,7 +65,9 @@ export class CouchAuth extends User {
     // Seed design docs for the user database
     let userDesign = require('./design/user-design');
     userDesign = addProvidersToDesignDoc(config, userDesign);
-    seed(userDB, userDesign);
+    seed(userDB, userDesign).catch(err => {
+      console.error('couch-auth: could not seed the user design doc: ', err);
+    });
     // Configure Passport local login and api keys
     localConfig(config, passport, this);
     // Load the routes
