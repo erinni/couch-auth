@@ -8,6 +8,7 @@ import url from 'url';
 import { randomUUID } from 'crypto';
 import { DBAuth } from './dbauth';
 import { Mailer } from './mailer';
+import { ConfirmedSession, SessionCache } from './session-cache';
 import { SessionHashing } from './session-hashing';
 import { Config } from './types/config';
 import {
@@ -51,6 +52,7 @@ export class User {
   private dbAuth: DBAuth;
   private userDbManager: DbManager;
   private session: SessionHashing;
+  private sessionCache: SessionCache | undefined;
   private onCreateActions: SlAction[];
   private onLinkActions: SlAction[];
   private hasher: UserHashing;
@@ -91,6 +93,7 @@ export class User {
     this.onLinkActions = [];
     this.hasher = new UserHashing(config);
     this.session = new SessionHashing(config);
+    this.sessionCache = SessionCache.for(config);
     this.userDbManager = new DbManager(userDB, config);
     this.passwordConstraints = config.local.passwordConstraints;
 
@@ -1466,7 +1469,14 @@ export class User {
    * the passed `key` + the `user_uid`, `expires`, `roles`, `provider` from the
    * the contents of the doc in the `_users`-DB.
    */
-  public async confirmSession(key: string, password: string) {
+  public async confirmSession(
+    key: string,
+    password: string
+  ): Promise<ConfirmedSession> {
+    const cached = this.sessionCache?.get(key, password);
+    if (cached) {
+      return cached;
+    }
     try {
       const doc = await this.dbAuth.retrieveKey(key);
       if (!doc.provider || !doc.expires) {
@@ -1477,14 +1487,16 @@ export class User {
 
       if (doc.expires > Date.now()) {
         if (await this.session.verifySessionPassword(doc, password)) {
-          return { 
-            key, 
+          const session: ConfirmedSession = {
+            key,
             _id: doc.user_id,
             user_uid: doc.user_uid,
             expires: doc.expires,
             roles: doc.roles,
             provider: doc.provider
           };
+          this.sessionCache?.set(key, password, session);
+          return session;
         } else {
           throw SessionHashing.invalidErr;
         }

@@ -8,6 +8,7 @@
 - :lock: password and session hashes are compared in constant time
 - :bug: `skipSuccessfulRequests: false` and `0` values in `loginRateLimit` / `passwordResetRateLimit` were ignored; the rate limit key is now the trimmed, lowercased username
 - :bug: build scripts work on Windows; `uuid` replaced by `crypto.randomUUID()`
+- :sparkles: optional `security.sessionCacheTtl`: verified sessions are kept in memory for that many seconds (never past their expiry), so authenticated requests don't read `_users` each time. It keeps only a hash of the session password and is shared by the instances of a process using the same `_users` db; keys removed by the process are evicted at once, other processes see a logout when their entry expires
 - :lock: email confirmation tokens: the user doc keeps only their sha256 hash (like password reset tokens) and they expire after `security.emailTokenLife` seconds (default: 7 days). Templates still find the token in `user.unverifiedEmail.token` (and in `token`); with `useCustomMailer`, get it from the new `confirm-email-token` event. Tokens stored in clear before this change keep working
 - :bug: background work no longer causes unhandled rejections (which stop Node): a failed signup insert emits `signup-error`; failures of the "email exists" mail, of the email change, of expired key removal and of the design doc seeding are logged
 - :bug: `forgotPassword()` without an email rejects with 400 instead of throwing; `refreshSession()` for an unknown session rejects with 401

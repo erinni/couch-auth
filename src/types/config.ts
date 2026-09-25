@@ -125,6 +125,12 @@ export interface SecurityConfig {
    */
   reuseInactiveSessions?: boolean;
   /**
+   * Seconds a verified session is kept in memory, so that authenticated
+   * requests don't read `_users` each time. Off unless set. A logout is seen
+   * at once by this process, by other processes only when their entry expires.
+   */
+  sessionCacheTtl?: number;
+  /**
    * Whether couch-auth should handle errors itself or
    * forward to the express error mechanism (`next(err)`)
    */

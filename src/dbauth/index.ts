@@ -10,6 +10,7 @@ import {
 } from '../types/typings';
 import { getExpiredSessions, getSessions, toArray, URLSafeUUID } from '../util';
 import { CouchAdapter } from './couchdb';
+import { SessionCache } from '../session-cache';
 
 export class DBAuth {
   adapter: CouchAdapter;
@@ -32,6 +33,7 @@ export class DBAuth {
     roles: string[],
     provider: string
   ) {
+    SessionCache.evict(this.config, key);
     return this.adapter.storeKey(
       username,
       user_uid,
@@ -49,6 +51,7 @@ export class DBAuth {
    * If this step fails, the user hasn't been deauthorized!
    */
   removeKeys(keys) {
+    SessionCache.evict(this.config, keys);
     return this.adapter.removeKeys(keys);
   }
 
