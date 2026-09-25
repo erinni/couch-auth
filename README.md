@@ -261,6 +261,8 @@ Be sure to _never_ use `safe` for data that is passed via `req` inside your nunj
 
 You can pass additional data for all templates via `emailTemplates.data` or for a single template via its `data` entry. It will be available in nunjucks as `data. ...`. The `${template}` is available under `templateId`.
 
+The default templates build their links with `emailTemplates.data.baseUrl`, the public URL of your app (e.g. `'https://example.com'`), which is required when they are used. Don't build links from `req.headers.host` in your own templates: the `Host` header comes from the client, so anyone could request a password reset for someone else and get the link pointing to their own server.
+
 Support for `ejs` has been dropped with version `0.17.0`.
 ## CouchDB Document Update Validation
 
@@ -286,13 +288,14 @@ providers: {
     options: {
       // Options here will be passed in on the call to passport.authenticate
     },
-    // You should copy the template from this repo that is in `templates/oauth/authCallback.njk` and modify the second parameter
-    // from '*' to your page origin, e.g. 'https://example.com', to avoid any malicious site receiving the auth data returned by the pop-up
-    // window workflow. The template can be the same for all providers.
-    template: path.join(__dirname, './templates/oauth/my-custom-secure-authCallback.njk')
+    // Optional: a custom callback template, e.g. a copy of `templates/oauth/authCallback.njk`.
+    // Never post the session with the targetOrigin '*'.
+    // template: path.join(__dirname, './templates/oauth/my-authCallback.njk')
   }
 }
 ```
+
+The default callback template posts the session to the opener window only if its origin is `security.oauthTargetOrigin` (e.g. `'https://example.com'`), which must be set to register a provider without a custom `template`.
 
 CouchAuth supports two types of workflows for OAuth2 providers: popup window and client access token.
 
@@ -408,7 +411,7 @@ couch-auth uses [express-slow-down](https://www.npmjs.com/package/express-slow-d
 
 ### Account lockout
 
-Set `security.maxFailedLogins` to lock an account after that many wrong passwords, for `security.lockoutTime` seconds (default: 600). Failures count only while they are less than `lockoutTime` apart, and a successful login resets them. While the account is locked, a login with the right password gets a 401 with `lockedUntil`; a wrong password gets the usual `Invalid username or password`, so the lock doesn't reveal that the account exists.
+Set `security.maxFailedLogins` to lock an account after that many wrong passwords, for `security.lockoutTime` seconds (default: 600). Failures count only while they are less than `lockoutTime` apart, and a successful login resets them. While the account is locked, every login gets the usual 401 `Invalid username or password`, also with the right password (otherwise guessing on during the lock would reveal it), and failures don't extend the lock. The right password emits `login-locked` (`userDoc`, `lockedUntil`), e.g. to tell the user by email. The same password check and lockout, with the `loginRateLimit`s, apply to `/request-deletion` and `/change-email`.
 
 ### Important notes:
 - You won't be able to override the keyGenerator option, as we use usernameField from the config.
@@ -512,7 +515,7 @@ Checks an email to make sure it is valid and not already in use. Responds with s
 Authentication required. Changes the user's email. Required field: `newEmail`.
 
 If `requirePasswordOnEmailChange` is `true`: The `username` (can also be email)
-and `password` are also required.
+and `password` of the session's user are also required.
 
 Note: The server returns an answer once the email has been verified as valid and
 whether this email already exists in the DB, not waiting for the update of the 
@@ -527,8 +530,8 @@ With 2.0, this route shouldn't be used anymore but is still present for backward
 
 ##### `POST /request-deletion`
 
-Authentication required. A valid login (i.e. email, username or UUId) must be 
-provided as `username` and the current `password`.
+Authentication required. A valid login (i.e. email, username or UUId) of the 
+session's user must be provided as `username` and the current `password`.
 Removes the user's account and all its private databases.
 ##### `GET /{provider}`
 
@@ -570,6 +573,7 @@ Here is a full list of the events that CouchAuth emits, and parameters provided:
 - `signup-attempt`: (`userDoc`, `provider`) // currently only for local
 - `link-social`: (`userDoc`, `provider`)
 - `login`: (`newSession`, `provider`)
+- `login-locked`: (`userDoc`, `lockedUntil`) // right password for a locked account
 - `refresh`: (`newSession`)
 - `password-reset`: (`userDoc`)
 - `password-change`: (`userDoc`)
@@ -644,7 +648,7 @@ Creates a new local user with a username and password.
 
 `form` requires the following: `username`, `email`, `password`, and `confirmPassword`. `name` is optional. Any additional fields must be whitelisted in your config under `userModel` or they will be removed.
 
-`req` should contain `protocol` and `headers.host` to properly generate the confirmation email link. `ip` will be logged if given.
+`req` is passed to the email templates. `ip` will be logged if given. The confirmation link is built with `emailTemplates.data.baseUrl`.
 
 ##### `couchAuth.onCreate(fn)`
 

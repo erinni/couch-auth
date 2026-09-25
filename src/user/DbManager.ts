@@ -234,7 +234,7 @@ export class DbManager {
   }
 
   async unlink(user_id, provider): Promise<SlUserDoc> {
-    const user = await this.getUser(user_id);
+    const user = await this.getUser(user_id, true);
     if (!user) {
       return Promise.reject({
         error: 'Bad Request',

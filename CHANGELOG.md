@@ -1,5 +1,20 @@
 ## Change Log
 
+#### Unreleased: Security fixes
+
+- :lock: a locked account answers every login with `Invalid username or password`, also for the right password: before, guesses during the lock told the right one apart (and weren't counted). The right password emits `login-locked` (`userDoc`, `lockedUntil`); the response no longer has `lockedUntil`
+- :lock: `/request-deletion` and `/change-email` accept only the password of the session's user (before, any valid credentials, so one account could delete or change another one knowing its password) and get the `loginRateLimit`s: they were a way to guess passwords without them
+- :lock: `/logout` and `/logout-all` need a valid session (key and password): before, the key alone logged out every session of its user
+- :boom: :lock: the default email templates build their links with the new `emailTemplates.data.baseUrl` instead of the request's `Host` header, which let anyone get a password reset link for someone else pointing to their own server. It's required when the default templates are used; check your own templates for `req.headers.host`
+- :boom: :lock: the default OAuth callback template posts the session only to the new `security.oauthTargetOrigin` (required to register a provider without a custom `template`) instead of `'*'`, i.e. to any site that opened the popup. Its JSON is now also safe inside the `<script>` (it was HTML-escaped, which broke the page)
+- :bug: the config of one `CouchAuth` instance no longer carries over to the next ones created in the same process (the defaults were modified in place)
+- :bug: `/change-email` with `requirePasswordOnEmailChange: false` always failed with 500; without `newEmail` it answers 400
+- :bug: `/password-change`, `/change-email`, `/unlink` and `/consents` failed with 400 unless `usernameLogin` was on (the default is off): they now find the user by its UUID. `changePasswordSecure()`, `changeEmail()` and `unlinkUserSocial()` also accept the UUID
+- :bug: the default OAuth callback template was looked up as `authCallback.ejs`, which doesn't exist
+- :bug: setting up a user db whose `_security` members had no `roles` removed its admin roles
+- :bug: `mailer.retryOnError` didn't retry a rejected send
+- :bug: `resetPassword()` with `passwordResetRateLimit` and an unknown username rejects with 400 instead of 500
+
 #### 0.29.0: Login hardening and security fixes
 
 - :sparkles: `security.maxFailedLogins` / `lockoutTime` now lock the account (they were documented but ignored)

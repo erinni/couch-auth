@@ -29,6 +29,9 @@ const testUser = {
 const userConfigHelper = new ConfigHelper({
   //confirmEmail: true,
   //emailFrom: 'noreply@example.com',
+  testMode: {
+    noEmail: true
+  },
   dbServer: {
     protocol: config.dbServer.protocol,
     host: config.dbServer.host,

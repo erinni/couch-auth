@@ -145,7 +145,7 @@ export class CouchAdapter implements DBAdapter {
       secDoc.members = { names: [], roles: [] };
     }
     if (!secDoc.members.roles) {
-      secDoc.admins.roles = [];
+      secDoc.members.roles = [];
     }
     adminRoles.forEach(function (role) {
       if (secDoc.admins.roles.indexOf(role) === -1) {

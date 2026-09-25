@@ -18,6 +18,8 @@ const exampleConfig = {
     defaultRoles: ['user'],
     // Disables the ability to link additional providers to an account when set to true
     disableLinkAccounts: false,
+    // Origin of your web app: the OAuth popup posts the session only to it
+    oauthTargetOrigin: 'https://example.com',
     // Maximum number of failed logins before the account is locked
     maxFailedLogins: 3,
     // The amount of time the account will be locked for (in seconds) after the maximum failed logins is exceeded
@@ -119,6 +121,12 @@ const exampleConfig = {
       }
     }
   },
+  emailTemplates: {
+    data: {
+      // Public URL of your app, used for the links in the default email templates (required with them)
+      baseUrl: 'https://example.com'
+    }
+  },
   emails: {
     // Customize the templates for the emails that SuperLogin sends out
     confirmEmail: {
@@ -196,13 +204,9 @@ const exampleConfig = {
       // This will pass in the user's auth token as a variable called 'state' when linking to this provider
       // Defaults to true for Google and LinkedIn, but you can enable it for other providers if needed
       stateRequired: false,
-      // You should copy the template from `templates/oauth/authCallback.ejs` and modify the second parameter
-      // from '*' to your page origin, e.g. 'https://example.com', to avoid any malicious site receiving the auth data returned by the pop-up
-      // window workflow. The template can be the same for all providers.
-      template: path.join(
-        __dirname,
-        './templates/oauth/my-custom-secure-authCallback.ejs'
-      )
+      // Optional custom callback template, e.g. a copy of `templates/oauth/authCallback.njk`.
+      // Never post the session with the targetOrigin '*'.
+      template: path.join(__dirname, './templates/oauth/my-authCallback.njk')
     }
   },
   // Anything here will be merged with the userModel that validates your local sign-up form.

@@ -227,8 +227,13 @@ export interface SlLoginSession extends SlRefreshSession {
 export interface SlRequestUser {
   /** `"local"` or the OAuth provider */
   provider?: string;
-  /** UUID (without hyphens) of the user */
+  /**
+   * With a bearer session, the `key` of the sl-user (the `user_id` of its
+   * `_users` doc), not its UUID
+   */
   _id?: string;
+  /** With a bearer session, the UUID (with hyphens) of the sl-user */
+  user_uid?: string;
   /**
    * In this context, this is the current _session_ of the user, not the `key`
    * in the SlUserDoc!

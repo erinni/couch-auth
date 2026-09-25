@@ -57,9 +57,11 @@ export default function (
                 if (invalid) {
                   return done(null, false, invalidResponse());
                 }
-                // Only who knows the password learns about the lock
+                // A locked account answers like a wrong password, also for the
+                // right one: otherwise guesses during the lock reveal it.
                 if (lockedUntil) {
-                  return done(null, false, lockedResponse(lockedUntil));
+                  user.emitter.emit('login-locked', theuser, lockedUntil);
+                  return done(null, false, invalidResponse());
                 }
                 // Check if the email has been confirmed if it is required
                 if (config.local.requireEmailConfirm && !theuser.email) {
@@ -106,14 +108,6 @@ export default function (
     return {
       error: 'Unauthorized',
       message: 'Invalid username or password'
-    };
-  }
-
-  function lockedResponse(lockedUntil: number) {
-    return {
-      error: 'Unauthorized',
-      message: 'Too many failed login attempts, the account is locked',
-      lockedUntil
     };
   }
 }

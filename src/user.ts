@@ -873,10 +873,8 @@ export class User {
       if (!username) {
         throw { status: 400, error: 'Invalid token' };
       }
-      const slUser = await this.getUser(
-        form[this.config.local.usernameField || 'username']
-      );
-      if (user._id !== slUser._id) {
+      const slUser = await this.getUser(username).catch(() => null);
+      if (user._id !== slUser?._id) {
         throw { status: 400, error: 'Invalid token' };
       }
     }
@@ -905,7 +903,7 @@ export class User {
 
   /**
    * Changes the password of a user, validating the provided data.
-   * @param login the `email`, `_id` or `key` of the `sl-user` to updated
+   * @param login the UUID, `email` or `key` of the `sl-user` to update
    * @param form `newPassword`, `confirmPassword` (same) and `currentPassword`
    * as sent by the user.
    * @param req additional data that will be passed to the template as `req`
@@ -925,7 +923,7 @@ export class User {
     }
 
     try {
-      const user = await this.getUser(login);
+      const user = await this.getUser(login, true);
       if (!user) {
         throw { error: 'Bad Request', status: 400 }; // should exist.
       }
@@ -1228,7 +1226,7 @@ export class User {
     newEmail: string,
     req: Partial<SlRequest>
   ) {
-    const user = await this.getUser(login);
+    const user = await this.getUser(login, true);
     if (!user) {
       throw { error: 'Bad Request', status: 400 }; // should exist.
     }
@@ -1259,7 +1257,7 @@ export class User {
   /**
    * Changes the user's email. If email verification is enabled
    * (`local.sendConfirmEmail`), a confirmation email will be sent out.
-   * @param login user's email, username or UUID (depending on your config)
+   * @param login user's UUID, or email or username (depending on your config)
    * @param newEmail the new email
    * @param req additional request data, passed to the template as `req`
    */
@@ -1271,6 +1269,13 @@ export class User {
     req = req || {};
     if (!req.user) {
       req.user = { provider: 'local' };
+    }
+    if (typeof newEmail !== 'string' || !newEmail.trim()) {
+      throw {
+        error: 'Validation failed',
+        validationErrors: { newEmail: ['New email is required'] },
+        status: 400
+      };
     }
     newEmail = newEmail.toLowerCase().trim();
     const emailError = await this.validateEmail(newEmail);

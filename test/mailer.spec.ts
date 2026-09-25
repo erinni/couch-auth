@@ -17,14 +17,15 @@ const mailerTestConfig = new Configure({
     }
   },
   emailTemplates: {
-    folder: join(__dirname, '../templates/email')
+    folder: join(__dirname, '../templates/email'),
+    data: { baseUrl: 'https://example.com/' }
   }
 });
 
 const req = {
   protocol: 'https',
   headers: {
-    host: 'example.com'
+    host: 'attacker.example'
   }
 };
 
@@ -57,6 +58,8 @@ describe('Mailer', function () {
         expect(
           response.search('https://example.com/auth/confirm-email/abc123')
         ).to.be.greaterThan(-1);
+        // links never come from the request's Host header
+        expect(response).not.to.include('attacker.example');
       });
   });
 
@@ -95,5 +98,61 @@ describe('Mailer', function () {
       expect(error).to.equal('nope');
     }
     expect(spySendMail.callCount).to.equal(4);
+  });
+
+  it('should retry when sending rejects', async () => {
+    let calls = 0;
+    mailer['transporter']['sendMail'] = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw 'nope';
+      }
+      return 'sent';
+    }) as any;
+    const res = await mailer.sendEmail('confirmEmail', 'super@example.com', {
+      req,
+      user
+    });
+    expect(res).to.equal('sent');
+    expect(calls).to.equal(2);
+  });
+
+  it('requires a baseUrl to send the default templates', () => {
+    const base = {
+      mailer: { fromEmail: 'noreply@example.com' },
+      emailTemplates: {}
+    };
+    expect(() => new Configure(base)).to.throw(/baseUrl/);
+    expect(
+      () =>
+        new Configure({
+          ...base,
+          emailTemplates: { data: { baseUrl: 'example.com' } }
+        })
+    ).to.throw(/baseUrl/);
+    expect(
+      () =>
+        new Configure({
+          ...base,
+          emailTemplates: { data: { baseUrl: 'https://example.com' } }
+        })
+    ).not.to.throw();
+    expect(
+      () =>
+        new Configure({
+          ...base,
+          mailer: { ...base.mailer, useCustomMailer: true }
+        })
+    ).not.to.throw();
+  });
+
+  it('keeps the config of each instance separate', () => {
+    const first = new Configure({
+      security: { maxFailedLogins: 3 },
+      testMode: { noEmail: true }
+    });
+    const second = new Configure({ testMode: { noEmail: true } });
+    expect(first.config.security.maxFailedLogins).to.equal(3);
+    expect(second.config.security.maxFailedLogins).to.equal(undefined);
   });
 });
