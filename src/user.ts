@@ -413,11 +413,12 @@ export class User {
       }
     }
 
-    newUser = await this.prepareNewUser(newUser);
+    let emailToken: string;
+    ({ newUser, emailToken } = await this.prepareNewUser(newUser));
     if (hasError) {
       return undefined;
     }
-    const inserted = this.insertNewUserDocument(newUser, req).then(
+    const inserted = this.insertNewUserDocument(newUser, req, emailToken).then(
       finalUser => {
         this.emitter.emit('signup', finalUser, 'local');
         return finalUser;
@@ -445,11 +446,11 @@ export class User {
     if (this.config.local.emailUsername) {
       newUser.key = await this.userDbManager.generateUsername();
     }
+    let emailToken: string;
     if (this.config.local.sendConfirmEmail) {
-      newUser.unverifiedEmail = {
-        email: newUser.email,
-        token: URLSafeUUID()
-      };
+      let unverifiedEmail: SlUserDoc['unverifiedEmail'];
+      ({ emailToken, unverifiedEmail } = this.createEmailToken(newUser.email));
+      newUser.unverifiedEmail = unverifiedEmail;
       delete newUser.email;
     }
     newUser.local = await this.hashPassword(newUser.password ?? URLSafeUUID());
@@ -465,10 +466,28 @@ export class User {
       provider: 'local',
       timestamp: new Date().toISOString()
     };
-    return newUser;
+    return { newUser, emailToken };
   }
 
-  private async insertNewUserDocument(newUser: Partial<SlUserNew>, req?) {
+  /**
+   * Creates an email confirmation token. The user doc keeps only its hash and
+   * expiry: the token itself goes only in the email.
+   */
+  private createEmailToken(email: string) {
+    const emailToken = URLSafeUUID();
+    const unverifiedEmail = {
+      email,
+      token: hashToken(emailToken),
+      expires: Date.now() + this.config.security.emailTokenLife * 1000
+    };
+    return { emailToken, unverifiedEmail };
+  }
+
+  private async insertNewUserDocument(
+    newUser: Partial<SlUserNew>,
+    req?,
+    emailToken?: string
+  ) {
     newUser = await this.addUserDBs(newUser as SlUserDoc);
     newUser = this.userDbManager.logActivity(
       'signup',
@@ -483,21 +502,35 @@ export class User {
     const result = await this.userDB.insert(finalNewUser);
     newUser._rev = result.rev;
     if (this.config.local.sendConfirmEmail) {
-      await this.sendConfirmEmail(newUser as SlUserDoc, req);
+      await this.sendConfirmEmail(newUser as SlUserDoc, req, emailToken);
     }
     return newUser as SlUserDoc;
   }
 
-  private async sendConfirmEmail(user: SlUserDoc, req?) {
+  /**
+   * Template data for a confirmation email: `user.unverifiedEmail.token` holds
+   * the token itself (the doc has its hash), so templates keep working.
+   */
+  private emailTokenData(user: SlUserDoc, emailToken: string, req?) {
+    return {
+      req,
+      token: emailToken,
+      user: {
+        ...user,
+        unverifiedEmail: { ...user.unverifiedEmail, token: emailToken }
+      }
+    };
+  }
+
+  private async sendConfirmEmail(user: SlUserDoc, req, emailToken: string) {
+    // with a custom mailer, this is the only way to get the token
+    this.emitter.emit('confirm-email-token', { user, token: emailToken });
     if (!this.config.mailer.useCustomMailer) {
       try {
         await this.mailer.sendEmail(
           'confirmEmail',
           user.unverifiedEmail.email,
-          {
-            req: req,
-            user: user
-          }
+          this.emailTokenData(user, emailToken, req)
         );
       }
       catch (err) {
@@ -521,6 +554,7 @@ export class User {
   ): Promise<SlUserDoc> {
     let user: Partial<SlUserDoc>;
     let newAccount = false;
+    let emailToken: string;
     // This used to be consumed by `.nodeify` from Bluebird. I hope `callbackify` works just as well...
     const results = await this.userDB.view('auth', provider, {
       key: profile.id,
@@ -561,10 +595,9 @@ export class User {
       }
       user.key = await this.userDbManager.generateUsername();
       if (this.config.providers[provider].confirmEmail) {
-        user.unverifiedEmail = {
-          email: user.email,
-          token: URLSafeUUID()
-        };
+        let unverifiedEmail: SlUserDoc['unverifiedEmail'];
+        ({ emailToken, unverifiedEmail } = this.createEmailToken(user.email));
+        user.unverifiedEmail = unverifiedEmail;
         delete user.email;
       }
     }
@@ -589,8 +622,8 @@ export class User {
     finalUser = this.userDbManager.logActivity(action, provider, finalUser);
     await this.userDB.insert(finalUser);
     this.emitter.emit(action, user, provider);
-    if (this.config.providers[provider].confirmEmail) {
-      await this.sendConfirmEmail(user as SlUserDoc);
+    if (emailToken) {
+      await this.sendConfirmEmail(user as SlUserDoc, undefined, emailToken);
     }
     return user as SlUserDoc;
   }
@@ -1124,40 +1157,54 @@ export class User {
   /**
    * Marks the user's email as verified. `token` comes from the confirmation
    * email. Resolves if the verification is successful or the token was still
-   * saved from a previous verification. Rejects if token is invalid.
+   * saved from a previous verification. Rejects if token is invalid or expired.
    * @param token
    */
   public async verifyEmail(token: string): Promise<void> {
+    if (typeof token !== 'string' || !token) {
+      return Promise.reject({ error: 'Invalid token', status: 400 });
+    }
+    const tokenHash = hashToken(token);
+    // docs keep the token's hash; older docs keep the token itself
+    const keys = [tokenHash, token];
     const lastTokenQuery = this.config.local.keepEmailConfirmToken
       ? this.userDB.view('auth', 'lastEmailToken', {
-          key: token,
+          keys,
           include_docs: true
         })
       : Promise.resolve({ rows: [] });
     const [verifyResult, lastTokenResult] = await Promise.all([
       this.userDB.view('auth', 'verifyEmail', {
-        key: token,
+        keys,
         include_docs: true
       }),
       lastTokenQuery
     ]);
+    // A plain token counts only for older docs (no expiry): a hash read from
+    // the db is never accepted as a token.
+    const rows = verifyResult.rows.filter(
+      row =>
+        row.key === tokenHash || !(row.doc as SlUserDoc).unverifiedEmail.expires
+    );
     if (
-      !verifyResult.rows.length &&
+      !rows.length &&
       (!this.config.local.keepEmailConfirmToken || !lastTokenResult.rows.length)
     ) {
       return Promise.reject({ error: 'Invalid token', status: 400 });
     }
-    if (verifyResult.rows.length > 1) {
-      console.error(
-        'Duplicate email confirm token for verifyEmail view: ' + token
-      );
+    if (rows.length > 1) {
+      console.error('Duplicate email confirm token for verifyEmail view');
       return Promise.reject({
         status: 500,
         error: 'Internal Server Error'
       });
     }
-    if (verifyResult.rows.length === 1) {
-      let user: SlUserDoc = verifyResult.rows[0].doc;
+    if (rows.length === 1) {
+      let user: SlUserDoc = rows[0].doc;
+      const expires = user.unverifiedEmail.expires;
+      if (expires && expires < Date.now()) {
+        return Promise.reject({ error: 'Token expired', status: 400 });
+      }
       user = await this.markEmailAsVerified(user);
       await this.userDB.insert(user);
     }
@@ -1184,18 +1231,14 @@ export class User {
     }
     if (this.config.local.sendConfirmEmail) {
       delete user.lastEmailToken;
-      user.unverifiedEmail = {
-        email: newEmail,
-        token: URLSafeUUID()
-      };
+      const { emailToken, unverifiedEmail } = this.createEmailToken(newEmail);
+      user.unverifiedEmail = unverifiedEmail;
+      this.emitter.emit('confirm-email-token', { user, token: emailToken });
       if (!this.config.mailer.useCustomMailer) {
         await this.mailer.sendEmail(
           'confirmEmailChange',
           user.unverifiedEmail.email,
-          {
-            req: req,
-            user: user
-          }
+          this.emailTokenData(user, emailToken, req)
         );
       }
     } else {

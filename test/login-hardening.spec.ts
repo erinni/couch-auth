@@ -82,14 +82,18 @@ describe('Login hardening', function () {
     const signedUp = new Promise(resolve =>
       couchAuth.emitter.once('signup', resolve)
     );
+    const emailToken = new Promise<string>(resolve =>
+      couchAuth.emitter.once('confirm-email-token', ({ token }) =>
+        resolve(token)
+      )
+    );
     await couchAuth.createUser({
       email,
       password,
       confirmPassword: password
     });
     await signedUp;
-    const created = await couchAuth.getUser(email);
-    await couchAuth.verifyEmail(created.unverifiedEmail.token);
+    await couchAuth.verifyEmail(await emailToken);
   });
 
   after(async () => {

@@ -13,6 +13,7 @@ import { User } from '../src/user';
 import {
   addProvidersToDesignDoc,
   getDBURL,
+  hashToken,
   hyphenizeUUID,
   isUUID,
   timeoutPromise
@@ -298,6 +299,9 @@ describe('User Model', async function () {
           userDoc['onCreate2'] = true;
           return Promise.resolve(userDoc);
         });
+        emitter.once('confirm-email-token', ({ token }) => {
+          verifyEmailToken = token;
+        });
         return user.createUser(testUserForm, req);
       })
       .then(newUser => {
@@ -308,7 +312,10 @@ describe('User Model', async function () {
         return userDB.get(superuserUUID);
       })
       .then(function (newUser) {
-        verifyEmailToken = newUser.unverifiedEmail.token;
+        expect(newUser.unverifiedEmail.token).to.equal(
+          hashToken(verifyEmailToken)
+        );
+        expect(newUser.unverifiedEmail.expires).to.be.greaterThan(Date.now());
         expect(isUUID(hyphenizeUUID(newUser._id))).to.be.true;
         expect(newUser.key).to.equal('superuser');
         expect(newUser.roles[0]).to.equal('user');
@@ -1039,7 +1046,9 @@ describe('User Model', async function () {
       .then(function (verifiedUser) {
         expect(verifiedUser.email).to.equal(testUserForm.email);
         expect(verifiedUser.activity[0].action).to.equal('email-verified');
-        expect(verifiedUser.lastEmailToken).to.equal(verifyEmailToken);
+        expect(verifiedUser.lastEmailToken).to.equal(
+          hashToken(verifyEmailToken)
+        );
         return emitterPromise;
       });
   });

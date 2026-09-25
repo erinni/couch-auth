@@ -10,6 +10,7 @@ export const defaultConfig: Config = {
     defaultRoles: ['user'],
     sessionLife: 86400,
     tokenLife: 86400,
+    emailTokenLife: 7 * 86400,
     loginOnRegistration: false,
     loginOnPasswordReset: false,
     disabledRoutes: [

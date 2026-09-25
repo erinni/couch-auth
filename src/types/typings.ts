@@ -138,7 +138,8 @@ export type UserEvent =
   | 'user-db-added'
   | 'user-deleted'
   | 'confirmation-email-error'
-  | 'signup-error';
+  | 'signup-error'
+  | 'confirm-email-token';
 
 export interface UserActivity {
   timestamp: string;
@@ -163,7 +164,8 @@ export interface SlUserDoc extends Document, IdentifiedObj {
   local: LocalHashObj;
   activity?: UserActivity[];
   forgotPassword?: PasswortResetEntry;
-  unverifiedEmail?: { email: string; token: string };
+  /** `token` is the sha256 hash of the emailed token (the token itself in older docs) */
+  unverifiedEmail?: { email: string; token: string; expires?: number };
   /**
    * After an `unverifiedEmail` was confirmed, the used token is documented
    * until a new email change token is requested.

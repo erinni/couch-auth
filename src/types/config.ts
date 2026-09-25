@@ -65,6 +65,8 @@ export interface SecurityConfig {
   sessionConfig?: SessionConfig;
   /** The number of seconds a password reset token is valid (default: 24h) */
   tokenLife: number;
+  /** The number of seconds an email confirmation token is valid (default: 7 days) */
+  emailTokenLife?: number;
   /**
    * The maximum number of entries in the activity log in each user doc.
    * Use 0 or undefined to disable completely.

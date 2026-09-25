@@ -3,7 +3,7 @@ import nano from 'nano';
 import sinon from 'sinon';
 import request from 'superagent';
 import seed from '../lib/design/seed';
-import { getDBURL, timeoutPromise } from '../lib/util';
+import { getDBURL, hashToken, timeoutPromise } from '../lib/util';
 import { config } from './test.config';
 
 // Import sinon-chai using require to avoid ES module issues
@@ -172,6 +172,9 @@ describe('SuperLogin', function () {
   });
 
   it('should create a new user', function () {
+    app.superlogin.emitter.once('confirm-email-token', ({ token }) => {
+      emailToken = token;
+    });
     return previous.then(() => {
       return request
         .post(server + '/auth/register')
@@ -189,7 +192,8 @@ describe('SuperLogin', function () {
     return previous.then(function () {
       return findUser('kewluzer')
         .then(function (record) {
-          emailToken = record.unverifiedEmail.token;
+          // the db keeps only the hash of the emailed token
+          expect(record.unverifiedEmail.token).to.equal(hashToken(emailToken));
           return 1;
         })
         .then(function () {
