@@ -1,6 +1,6 @@
 ## Change Log
 
-#### Unreleased: Security fixes
+#### 0.29.1: Security fixes
 
 - :lock: a locked account answers every login with `Invalid username or password`, also for the right password: before, guesses during the lock told the right one apart (and weren't counted). The right password emits `login-locked` (`userDoc`, `lockedUntil`); the response no longer has `lockedUntil`
 - :lock: `/request-deletion` and `/change-email` accept only the password of the session's user (before, any valid credentials, so one account could delete or change another one knowing its password) and get the `loginRateLimit`s: they were a way to guess passwords without them
