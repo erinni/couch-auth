@@ -147,13 +147,17 @@ describe('Login hardening', function () {
     expect(local.lockedUntil).to.be.greaterThan(Date.now());
   });
 
-  it('tells about the lock only who knows the password', async () => {
+  it('answers a locked account like a wrong password, also for the right one', async () => {
+    const locked = new Promise(resolve =>
+      couchAuth.emitter.once('login-locked', (_user, until) => resolve(until))
+    );
     const wrong = await login(email, 'Wrong1!!');
-    expect(wrong.status).to.equal(401);
-    expect(wrong.body.message).to.equal('Invalid username or password');
     const right = await login(email, password);
+    expect(wrong.status).to.equal(401);
     expect(right.status).to.equal(401);
-    expect(right.body.lockedUntil).to.be.a('number');
+    // otherwise guessing on during the lock would reveal the password
+    expect(right.body).to.deep.equal(wrong.body);
+    expect(await locked).to.be.a('number');
     // failures during the lock don't extend it
     expect((await getLocal()).failedLoginAttempts).to.equal(3);
   });

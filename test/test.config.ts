@@ -3,7 +3,8 @@ import { join } from 'path';
 export const config = {
   port: 5000,
   emailTemplates: {
-    folder: join(__dirname, '../templates/email')
+    folder: join(__dirname, '../templates/email'),
+    data: { baseUrl: 'https://example.com' }
   },
   testMode: {
     noEmail: true,

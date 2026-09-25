@@ -3,8 +3,13 @@ import { Config } from '../types/config';
 import { mergeConfig } from '../util';
 import { defaultConfig } from './default.config';
 
+/** 12 url-safe base64 characters: 72 random bits */
+const MIN_RESET_TOKEN_LENGTH = 12;
+
 export class ConfigHelper {
-  public config: Config = defaultConfig;
+  // a copy: merging into `defaultConfig` would carry one instance's settings
+  // over to the next one
+  public config: Config = structuredClone(defaultConfig);
 
   constructor(data: Partial<Config> = {}) {
     // Some extra default settings if no config object is specified
@@ -34,6 +39,13 @@ export class ConfigHelper {
       throw 'sendConfirmEmail must also be set if keepEmailConfirmToken is.';
     }
 
+    this.verifyBaseUrl();
+
+    const tokenLength = this.config.local?.tokenLengthOnReset;
+    if (tokenLength && tokenLength < MIN_RESET_TOKEN_LENGTH) {
+      throw `local.tokenLengthOnReset must be at least ${MIN_RESET_TOKEN_LENGTH}: shorter reset tokens can be guessed.`;
+    }
+
     if (this.config.security?.iterations) {
       const itArr = this.config.security.iterations;
       let prev = 0;
@@ -48,6 +60,25 @@ export class ConfigHelper {
         }
         prev = pair[0];
       }
+    }
+  }
+
+  private verifyBaseUrl() {
+    const baseUrl = this.config.emailTemplates?.data?.baseUrl;
+    if (baseUrl !== undefined) {
+      if (typeof baseUrl !== 'string' || !/^https?:\/\/[^/]+/.test(baseUrl)) {
+        throw 'emailTemplates.data.baseUrl must be an absolute http(s) URL.';
+      }
+      this.config.emailTemplates.data.baseUrl = baseUrl.replace(/\/+$/, '');
+      return;
+    }
+    const sendsDefaultTemplates =
+      this.config.emailTemplates?.folder ===
+        defaultConfig.emailTemplates.folder &&
+      !this.config.mailer?.useCustomMailer &&
+      !this.config.testMode?.noEmail;
+    if (sendsDefaultTemplates) {
+      throw 'emailTemplates.data.baseUrl must be set to send the default email templates.';
     }
   }
 }

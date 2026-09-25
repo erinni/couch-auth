@@ -9,6 +9,16 @@ import { SlRequest } from './types/typings';
 import { User } from './user';
 import { capitalizeFirstLetter } from './util';
 
+/** JSON that can't end a `<script>` or break out of it */
+function scriptSafeJson(value: unknown): string {
+  return JSON.stringify(value ?? null)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 export class OAuth {
   static stateRequired = ['google', 'linkedin'];
 
@@ -33,9 +43,7 @@ export class OAuth {
       })
       .then(
         results => {
-          const template = this.getTemplate(provider);
-          const html = render(template, results);
-          res.status(200).send(html);
+          res.status(200).send(this.renderCallback(provider, results));
         },
         err => {
           return next(err);
@@ -69,9 +77,7 @@ export class OAuth {
       session: null,
       link: provider
     };
-    const template = this.getTemplate(provider);
-    const html = render(template, result);
-    res.status(200).send(html);
+    res.status(200).send(this.renderCallback(provider, result));
   }
 
   /** Called after an account has been succesfully linked using access_token provider */
@@ -92,8 +98,7 @@ export class OAuth {
     next: NextFunction
   ) {
     const provider = this.getProvider(req.path);
-    const template = this.getTemplate(provider);
-    const html = render(template, {
+    const html = this.renderCallback(provider, {
       error: err.message,
       session: null,
       link: null
@@ -131,6 +136,15 @@ export class OAuth {
     provider = provider.toLowerCase();
     const configRef = this.config.providers[provider];
     if (configRef.credentials) {
+      if (
+        !configRef.template &&
+        !this.config.testMode?.oauthTest &&
+        !this.config.security?.oauthTargetOrigin
+      ) {
+        throw new Error(
+          `${provider}: set security.oauthTargetOrigin (or a custom template) to register an OAuth provider.`
+        );
+      }
       const credentials = configRef.credentials;
       credentials.passReqToCallback = true;
       const options = configRef.options || {};
@@ -363,6 +377,18 @@ export class OAuth {
     }
   }
 
+  /** Renders the popup page that hands the result to the opener window */
+  private renderCallback(
+    provider: string,
+    result: { error: string | null; session: unknown; link: string | null }
+  ): string {
+    return render(this.getTemplate(provider), {
+      ...result,
+      payloadJson: scriptSafeJson(result),
+      targetOriginJson: scriptSafeJson(this.config.security?.oauthTargetOrigin)
+    });
+  }
+
   /**
    * Gets the template file checking if a custom template was set in the provider options
    * and if the testMode.oauthTest is enabled.
@@ -378,6 +404,6 @@ export class OAuth {
     if (configRef?.template) {
       return configRef.template;
     }
-    return join(__dirname, '../templates/oauth/authCallback.ejs');
+    return join(__dirname, '../templates/oauth/authCallback.njk');
   }
 }

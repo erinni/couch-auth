@@ -7,16 +7,11 @@
 </head>
 <body>
 <script type="text/javascript">
-    if (window.opener) {
+    var targetOrigin = {{ targetOriginJson | safe }};
+    if (window.opener && targetOrigin) {
         window.opener.focus();
-        var session = {{ session |dump }};
-        var error = {{ error | dump }};
-        var link = {{ link | dump }};
-        // When you change the targetOrigin be sure to set the protocol, host and port
-        // otherwise the message won't be posted to the parent window.
-        // https://developer.mozilla.org/en-US/docs/Web/Security/Same-origin_policy#definition_of_an_origin
-        // e.g. 'http://mypage.com:8080'
-        window.opener.postMessage({error, session, link}, '*');
+        // only the page at `security.oauthTargetOrigin` receives the session
+        window.opener.postMessage({{ payloadJson | safe }}, targetOrigin);
     }
     window.close();
 </script>

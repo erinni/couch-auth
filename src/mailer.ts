@@ -103,7 +103,7 @@ export class Mailer {
     attempt: number
   ) {
     try {
-      return this.transporter.sendMail(mailOptions);
+      return await this.transporter.sendMail(mailOptions);
     } catch (error) {
       attempt += 1;
       if (attempt > this.config.mailer.retryOnError.maxRetries) {

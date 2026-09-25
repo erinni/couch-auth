@@ -5,11 +5,7 @@ import slowDown, { Options as SlowDownOptions } from 'express-slow-down';
 import { Config } from './types/config';
 import { SlRequest } from './types/typings';
 import { User, ValidErr } from './user';
-import {
-  capitalizeFirstLetter,
-  getSessionToken,
-  isUserFacingError
-} from './util';
+import { capitalizeFirstLetter, isUserFacingError } from './util';
 
 export default function (
   config: Partial<Config>,
@@ -40,14 +36,24 @@ export default function (
   }
 
   /**
-   * Slows down repeated requests for the same username, or for the same client
-   * IP if `byIp` (express-slow-down's default key).
+   * Slows down repeated requests for the same `key`: the username sent in the
+   * body, the client IP (express-slow-down's default) or the user of the
+   * bearer session.
    */
   function createSpeedLimiter(
     options: Partial<SlowDownOptions> = {},
-    byIp = false
+    key: 'username' | 'ip' | 'session' = 'username'
   ) {
     const usernameField = config.local.usernameField || 'username';
+    const keyGenerators = {
+      username: (req: Request) =>
+        String(req.body?.[usernameField] ?? '')
+          .trim()
+          .toLowerCase(),
+      ip: undefined,
+      // the session's `_id` is the sl-user's `key`
+      session: (req: SlRequest) => String(req.user?._id)
+    };
     return slowDown({
       windowMs: options.windowMs ?? 5 * 60 * 1000,
       delayAfter: options.delayAfter ?? 3,
@@ -58,27 +64,70 @@ export default function (
       maxDelayMs: options.maxDelayMs ?? 10000,
       skipSuccessfulRequests: options.skipSuccessfulRequests ?? true,
       skipFailedRequests: options.skipFailedRequests ?? false,
-      ...(byIp
-        ? {}
-        : {
-            keyGenerator: (req: Request) =>
-              String(req.body?.[usernameField] ?? '')
-                .trim()
-                .toLowerCase()
-          }),
+      ...(keyGenerators[key] ? { keyGenerator: keyGenerators[key] } : {}),
       store: options.store,
       headers: options.headers ?? false
     });
   }
 
-  if (!disabled.includes('login')) {
-    const speedLimiters = [createSpeedLimiter(config.security.loginRateLimit)];
-    if (config.security.loginRateLimitPerIp) {
-      speedLimiters.push(
-        createSpeedLimiter(config.security.loginRateLimitPerIp, true)
-      );
-    }
+  /**
+   * How to find the sl-user of a bearer session: its UUID, which works with
+   * any login config (the session's `_id` is the sl-user's `key`)
+   */
+  function sessionLogin(req: SlRequest) {
+    return req.user.user_uid ?? req.user._id;
+  }
 
+  /** Limits for `/login` */
+  const speedLimiters = [createSpeedLimiter(config.security.loginRateLimit)];
+  if (config.security.loginRateLimitPerIp) {
+    speedLimiters.push(
+      createSpeedLimiter(config.security.loginRateLimitPerIp, 'ip')
+    );
+  }
+
+  /**
+   * Limits for routes that check the password of the bearer session's user:
+   * per user, whatever username the body names
+   */
+  const sessionSpeedLimiters = [
+    createSpeedLimiter(config.security.loginRateLimit, 'session')
+  ];
+  if (config.security.loginRateLimitPerIp) {
+    sessionSpeedLimiters.push(
+      createSpeedLimiter(config.security.loginRateLimitPerIp, 'ip')
+    );
+  }
+
+  /**
+   * For routes that need the bearer session and the password: checks the
+   * password with the local strategy (and its lockout), then makes sure it
+   * belongs to the session's user and restores the session as `req.user`.
+   */
+  const requirePasswordOfSessionUser = [
+    (req: SlRequest, res: Response, next: NextFunction) => {
+      res.locals.sessionUser = req.user;
+      next();
+    },
+    ...sessionSpeedLimiters,
+    (req: Request, res: Response, next: NextFunction) => {
+      loginLocal(req, res, next);
+    },
+    (req: SlRequest, res: Response, next: NextFunction) => {
+      const sessionUser = res.locals.sessionUser;
+      // the session's `_id` is the sl-user's `key`
+      if (!sessionUser || req.user?.key !== sessionUser._id) {
+        return res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid username or password'
+        });
+      }
+      req.user = sessionUser;
+      next();
+    }
+  ];
+
+  if (!disabled.includes('login')) {
     router.post(
       '/login',
       ...speedLimiters,
@@ -124,15 +173,9 @@ export default function (
   if (!disabled.includes('logout'))
     router.post(
       '/logout',
-      function (req: Request, res: Response, next: NextFunction) {
-        const sessionToken = getSessionToken(req);
-        if (!sessionToken) {
-          return next({
-            error: 'unauthorized',
-            status: 401
-          });
-        }
-        user.logoutSession(sessionToken).then(
+      passport.authenticate('bearer', { session: false }),
+      function (req: SlRequest, res: Response, next: NextFunction) {
+        user.logoutSession(req.user.key).then(
           function () {
             res.status(200).json({ ok: true, success: 'Logged out' });
           },
@@ -164,15 +207,9 @@ export default function (
   if (!disabled.includes('logout-all'))
     router.post(
       '/logout-all',
-      function (req: Request, res: Response, next: NextFunction) {
-        const sessionToken = getSessionToken(req);
-        if (!sessionToken) {
-          return next({
-            error: 'unauthorized',
-            status: 401
-          });
-        }
-        user.logoutAll(null, sessionToken).then(
+      passport.authenticate('bearer', { session: false }),
+      function (req: SlRequest, res: Response, next: NextFunction) {
+        user.logoutAll(null, req.user.key).then(
           function () {
             res.status(200).json({ success: 'Logged out' });
           },
@@ -250,9 +287,13 @@ export default function (
     );
 
   if (!disabled.includes('password-reset')) {
-    const speedLimiter = createSpeedLimiter(
-      config.security.passwordResetRateLimit
-    );
+    // per username if `passwordResetRateLimit` is set (the username is then
+    // required), always per IP: the token alone is what's being guessed
+    const resetLimit = config.security.passwordResetRateLimit;
+    const speedLimiters = [createSpeedLimiter(resetLimit, 'ip')];
+    if (resetLimit) {
+      speedLimiters.unshift(createSpeedLimiter(resetLimit));
+    }
 
     router.post(
       '/password-reset',
@@ -272,7 +313,7 @@ export default function (
 
         return next();
       },
-      speedLimiter,
+      ...speedLimiters,
       function (req: Request, res: Response, next: NextFunction) {
         user.resetPassword(req.body, req).then(
           function (currentUser) {
@@ -308,8 +349,9 @@ export default function (
     router.post(
       '/password-change',
       passport.authenticate('bearer', { session: false }),
+      ...sessionSpeedLimiters,
       function (req: SlRequest, res: Response, next: NextFunction) {
-        user.changePasswordSecure(req.user._id, req.body, req).then(
+        user.changePasswordSecure(sessionLogin(req), req.body, req).then(
           function () {
             res.status(200).json({ success: 'password changed' });
           },
@@ -326,7 +368,7 @@ export default function (
       passport.authenticate('bearer', { session: false }),
       function (req: SlRequest, res: Response, next: NextFunction) {
         const provider = req.params.provider;
-        user.unlinkUserSocial(req.user._id, provider).then(
+        user.unlinkUserSocial(sessionLogin(req), provider).then(
           function () {
             res.status(200).json({
               success: capitalizeFirstLetter(provider) + ' unlinked'
@@ -426,9 +468,7 @@ export default function (
     router.post(
       '/request-deletion',
       passport.authenticate('bearer', { session: false }),
-      (req: Request, res: Response, next: NextFunction) => {
-        loginLocal(req, res, next);
-      },
+      ...requirePasswordOfSessionUser,
       (req: SlRequest, res: Response, next: NextFunction) => {
         if (req.body.reason && typeof req.body.reason !== 'string') {
           return res.sendStatus(400);
@@ -437,8 +477,9 @@ export default function (
           ok: true,
           success: 'deletion requested'
         });
-        user.removeUser(req.user._id, true, req.body.reason).catch(err => {
-          console.warn('request-deletion: failed for ', req.user._id, err);
+        const uid = sessionLogin(req);
+        user.removeUser(uid, true, req.body.reason).catch(err => {
+          console.warn('request-deletion: failed for ', uid, err);
         });
       }
     );
@@ -447,18 +488,11 @@ export default function (
     router.post(
       '/change-email',
       passport.authenticate('bearer', { session: false }),
-      function (req: Request, res: Response, next: NextFunction) {
-        if (config.local.requirePasswordOnEmailChange) {
-          loginLocal(req, res, next);
-        } else {
-          next(req);
-        }
-      },
+      ...(config.local.requirePasswordOnEmailChange
+        ? requirePasswordOfSessionUser
+        : []),
       function (req: SlRequest, res: Response, next: NextFunction) {
-        const login = config.local.requirePasswordOnEmailChange
-          ? req.user.key
-          : req.user._id;
-        user.changeEmail(login, req.body.newEmail, req).then(
+        user.changeEmail(sessionLogin(req), req.body.newEmail, req).then(
           function () {
             res
               .status(200)
@@ -490,7 +524,7 @@ export default function (
       passport.authenticate('bearer', { session: false }),
       (req: SlRequest, res: Response, next: NextFunction) => {
         user
-          .getCurrentConsents(req.user._id)
+          .getCurrentConsents(sessionLogin(req))
           .then(consents => res.status(200).json(consents))
           .catch(err => next(err));
       }
@@ -501,7 +535,7 @@ export default function (
       passport.authenticate('bearer', { session: false }),
       (req: SlRequest, res: Response, next: NextFunction) => {
         user
-          .updateConsents(req.user._id, req.body)
+          .updateConsents(sessionLogin(req), req.body)
           .then(ret => res.status(200).json(ret))
           .catch(err => next(err));
       }
