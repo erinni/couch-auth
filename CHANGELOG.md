@@ -1,6 +1,6 @@
 ## Change Log
 
-#### Unreleased: Login hardening
+#### 0.29.0: Login hardening and security fixes
 
 - :sparkles: `security.maxFailedLogins` / `lockoutTime` now lock the account (they were documented but ignored)
 - :sparkles: optional `security.loginRateLimitPerIp` slows down one IP trying many usernames
