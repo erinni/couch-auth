@@ -1,11 +1,11 @@
 # CouchAuth
 
 ![Known Vulnerabilities](https://dev.snyk.io/test/github/sl-nx/superlogin/badge.svg)
-![Build Status](https://github.com/perfood/couch-auth/workflows/Build/badge.svg?branch=master)
+![Build Status](https://github.com/erinni/couch-auth/workflows/Build/badge.svg?branch=master)
 
 This is a heavily modified [SuperLogin](https://github.com/colinskow/superlogin), re-written in TypeScript and developed with Node 14/16 & CouchDB 3. It is compatible with Cloudant when using the CouchDB-style authentication, adapted for current OWASP best practises and can be used on [CloudFoundry](https://www.ibm.com/cloud/cloud-foundry).
 
-Important breaking changes, see the [Changelog](https://github.com/perfood/couch-auth/blob/master/CHANGELOG.md) for details:
+Important breaking changes, see the [Changelog](https://github.com/erinni/couch-auth/blob/master/CHANGELOG.md) for details:
 - `0.17.0`: Replaced `ejs` with `nunjucks`, new templating logic, Node >= 14
 - `0.14.0`: Moved db and `sl-users` - structure to UUIDs
 
