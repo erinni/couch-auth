@@ -1,7 +1,7 @@
 # CouchAuth
 
 ![Known Vulnerabilities](https://dev.snyk.io/test/github/sl-nx/superlogin/badge.svg)
-![Build Status](https://github.com/erinni/couch-auth/workflows/Build/badge.svg?branch=master)
+[![Build](https://github.com/erinni/couch-auth/actions/workflows/ci-workflow.yml/badge.svg?branch=master)](https://github.com/erinni/couch-auth/actions/workflows/ci-workflow.yml)
 
 This is a heavily modified [SuperLogin](https://github.com/colinskow/superlogin), re-written in TypeScript and developed with Node 14/16 & CouchDB 3. It is compatible with Cloudant when using the CouchDB-style authentication, adapted for current OWASP best practises and can be used on [CloudFoundry](https://www.ibm.com/cloud/cloud-foundry).
 
