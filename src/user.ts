@@ -16,7 +16,10 @@ import {
   CouchDbAuthDoc,
   CreateSessionOpts,
   HashResult,
+  LoginStartResult,
   LocalHashObj,
+  MfaEnableResult,
+  MfaSetupInfo,
   RegistrationForm,
   SessionObj,
   SlAction,
@@ -28,6 +31,7 @@ import {
 } from './types/typings';
 import { UserHashing } from './user-hashing';
 import { DbManager } from './user/DbManager';
+import { MfaManager } from './mfa/mfa-manager';
 import {
   EMAIL_REGEXP,
   URLSafeUUID,
@@ -53,6 +57,7 @@ export class User {
   private userDbManager: DbManager;
   private session: SessionHashing;
   private sessionCache: SessionCache | undefined;
+  private mfaManager: MfaManager;
   private onCreateActions: SlAction[];
   private onLinkActions: SlAction[];
   private hasher: UserHashing;
@@ -96,6 +101,7 @@ export class User {
     this.sessionCache = SessionCache.for(config);
     this.userDbManager = new DbManager(userDB, config);
     this.passwordConstraints = config.local.passwordConstraints;
+    this.mfaManager = new MfaManager(config, this);
 
     // the validation functions are public and callable without `this` context
     this.validateUsername = async function (username: string) {
@@ -690,6 +696,15 @@ export class User {
       console.warn('createSession - could not retrieve: ', login);
       throw { error: 'Bad Request', status: 400 };
     }
+    // Every path that creates sessions (local login, OAuth, ...) ends here:
+    // without a verified second factor, no session for users who need one.
+    if (this.mfaManager.isRequiredFor(user) && params.mfaVerified !== true) {
+      throw {
+        error: 'Unauthorized',
+        message: 'Second factor required',
+        status: 401
+      };
+    }
     const now = Date.now();
     const password = URLSafeUUID();
     let sessionLife = this.config.security.sessionLife * 1000;
@@ -794,6 +809,69 @@ export class User {
     }
     this.emitter.emit('login', newSession, provider);
     return newSession as SlLoginSession;
+  }
+
+  /**
+   * Login entry point when MFA may be enabled: call it after the password check
+   * (e.g. the passport `local` strategy). Returns the session directly when no
+   * second factor is needed, otherwise an `mfaToken` for `verifyMfaLogin` or a
+   * `setupToken` for `beginMfaSetup` / `enableMfa`.
+   * @param userId the `_id` of the user (UUID without hyphens)
+   */
+  public startLogin(
+    userId: string,
+    opts: { provider?: string; sessionType?: string } = {}
+  ): Promise<LoginStartResult> {
+    return this.mfaManager.startLogin(userId, opts);
+  }
+
+  /** Completes a login with a TOTP code or a recovery code. */
+  public verifyMfaLogin(mfaToken: string, code: string): Promise<SlLoginSession> {
+    return this.mfaManager.verifyLogin(mfaToken, code);
+  }
+
+  /**
+   * Starts the TOTP enrolment. Pass the `setupToken` of a login, or the
+   * `login` of a user you have already authenticated.
+   */
+  public beginMfaSetup(target: { setupToken?: string; login?: string }): Promise<MfaSetupInfo> {
+    return this.mfaManager.beginSetup(target);
+  }
+
+  /** Confirms the enrolment with a code; returns the recovery codes (once). */
+  public enableMfa(target: {
+    setupToken?: string;
+    login?: string;
+    code: string;
+  }): Promise<MfaEnableResult> {
+    return this.mfaManager.enable(target);
+  }
+
+  /** Removes the user's second factor and logs out all their sessions. */
+  public resetMfa(login: string): Promise<void> {
+    return this.mfaManager.reset(login);
+  }
+
+  /** Issues new recovery codes; previous ones become invalid. */
+  public regenerateMfaRecoveryCodes(login: string): Promise<string[]> {
+    return this.mfaManager.regenerateRecoveryCodes(login);
+  }
+
+  /**
+   * Removes all sessions of the user from `_users` and from the document,
+   * without saving the document (the caller does).
+   * @internal used by the MFA reset
+   */
+  public async logoutAllSessions(userDoc: SlUserDoc, reason: string): Promise<SlUserDoc> {
+    let user = await this.dbAuth.logoutUserSessions(userDoc, 'all');
+    user = this.userDbManager.logActivity('logout-all', reason, user);
+    this.emitter.emit('logout-all', user.key);
+    return user;
+  }
+
+  /** Whether sessions for this user need a verified second factor. */
+  public isMfaRequired(userDoc: SlUserDoc): boolean {
+    return this.mfaManager.isRequiredFor(userDoc);
   }
 
   /**

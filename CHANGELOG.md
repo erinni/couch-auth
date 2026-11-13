@@ -1,5 +1,14 @@
 ## Change Log
 
+#### 0.30.0: Two-factor authentication (TOTP)
+
+- :sparkles: optional second factor with TOTP (RFC 6238) and recovery codes, configured under `mfa` (off by default: without it nothing changes). See "Two-factor authentication" in the README
+- :sparkles: `/login` answers with an `mfaToken` (or a `setupToken` with `mfa.required`) instead of a session when a second factor is needed; new routes `/login/mfa`, `/mfa/setup`, `/mfa/enable`
+- :sparkles: library methods `startLogin()`, `verifyMfaLogin()`, `beginMfaSetup()`, `enableMfa()`, `resetMfa()`, `regenerateMfaRecoveryCodes()`, `isMfaRequired()`
+- :lock: `createSession()` refuses users who need a second factor unless it was verified, so no route (OAuth included) creates a session without it
+- :lock: TOTP secrets encrypted with AES-256-GCM; tokens and recovery codes stored as sha256 hashes; codes can't be replayed; wrong codes count towards `maxFailedLogins`
+- :boom: with `mfa.enabled`, `loginOnRegistration` and `loginOnPasswordReset` must be `false`; `mfa.required` can't be combined with OAuth providers
+
 #### 0.29.1: Security fixes
 
 - :lock: a locked account answers every login with `Invalid username or password`, also for the right password: before, guesses during the lock told the right one apart (and weren't counted). The right password emits `login-locked` (`userDoc`, `lockedUntil`); the response no longer has `lockedUntil`

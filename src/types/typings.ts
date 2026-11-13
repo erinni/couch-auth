@@ -20,7 +20,61 @@ export type CreateSessionOpts = {
    * user's roles and the config entry for this session type.
    */
   sessionType?: string;
+  /**
+   * Must be `true` to create a session for a user who needs a second factor
+   * (`mfa` config). Set only by the MFA verification methods.
+   * @internal
+   */
+  mfaVerified?: boolean;
 };
+
+/** A pending second-factor step, stored hashed in `SlUserDoc.mfa.challenges` */
+export interface MfaChallenge {
+  /** `login`: TOTP/recovery code expected; `setup`: enrolment expected */
+  kind: 'login' | 'setup';
+  expires: number;
+  attempts: number;
+  provider: string;
+  sessionType?: string;
+}
+
+/** Second factor state of a user (never returned to clients) */
+export interface UserMfa {
+  enabled: boolean;
+  enabledAt?: number;
+  /** encrypted TOTP secret (see `mfa/secret-box`) */
+  secret?: string;
+  /** encrypted secret of an enrolment in progress */
+  pendingSecret?: string;
+  pendingExpires?: number;
+  /** last accepted TOTP step: older or equal steps are refused */
+  lastUsedStep?: number;
+  /** sha256 hashes of the unused recovery codes */
+  recoveryCodes?: string[];
+  /** key: sha256 hash of the token handed to the client */
+  challenges?: Record<string, MfaChallenge>;
+}
+
+/** Result of `startLogin`: a session, or the token for the second step */
+export type LoginStartResult =
+  | { mfaRequired: false; mfaSetupRequired: false; session: SlLoginSession }
+  | { mfaRequired: true; mfaSetupRequired: false; mfaToken: string; expires: number }
+  | { mfaRequired: false; mfaSetupRequired: true; setupToken: string; expires: number };
+
+export interface MfaSetupInfo {
+  /** `otpauth://` URI to render as QR code */
+  otpauthUrl: string;
+  /** base32 secret, for manual entry in the authenticator app */
+  secret: string;
+  expires: number;
+}
+
+export interface MfaEnableResult {
+  /** shown once to the user, stored only as hashes */
+  recoveryCodes: string[];
+  /** when enabled with a `setupToken`: the session of the completed login */
+  session?: SlLoginSession;
+}
 
 /** copied from https://nodemailer.com/smtp/pooled/ because it's not included in the typings */
 export interface PooledSMTPOptions {
@@ -179,6 +233,8 @@ export interface SlUserDoc extends Document, IdentifiedObj {
   inactiveSessions: string[];
   profile: any;
   consents?: Record<string, ConsentSlEntry[]>;
+  /** second factor, see `mfa` in the config */
+  mfa?: UserMfa;
 }
 
 export interface ConsentConfig {

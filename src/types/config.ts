@@ -499,9 +499,34 @@ export interface ProviderConfig {
   confirmEmail?: boolean;
 }
 
+/** Second factor (TOTP) settings. Off unless `enabled` is `true`. */
+export interface MfaConfig {
+  /** Default: false. When false, logins behave as without MFA support. */
+  enabled: boolean;
+  /**
+   * Every user must have a second factor: a login without one returns a
+   * `setupToken` that only allows the enrolment. Default: false
+   */
+  required: boolean;
+  /** Shown in the authenticator app, e.g. the product name */
+  issuer: string;
+  /** 32 random bytes as base64, encrypts the TOTP secrets at rest */
+  encryptionKey: string;
+  /** Accepted clock drift in 30 s steps. Default: 1 */
+  window: number;
+  /** Seconds an mfaToken/setupToken stays valid. Default: 300 */
+  tokenLife: number;
+  /** Wrong codes before a token is invalidated. Default: 5 */
+  maxAttempts: number;
+  /** Number of recovery codes generated on enrolment. Default: 10 */
+  recoveryCodeCount: number;
+}
+
 export interface Config {
   /** Only necessary for testing/debugging */
   testMode?: Partial<TestConfig>;
+  /** Second factor (TOTP). Disabled by default. */
+  mfa?: Partial<MfaConfig>;
   /** Security/Session - related configuration */
   security?: Partial<SecurityConfig>;
   local: Partial<LocalConfig>;

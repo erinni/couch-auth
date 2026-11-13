@@ -135,16 +135,20 @@ export default function (
         loginLocal(req, res, next);
       },
       function (req: SlRequest, res, next) {
+        // Without MFA (or for users who don't need it) this answers with the
+        // session as before; otherwise with the token for the second step.
         return user
-          .createSession({
-            login: req.user._id,
+          .startLogin(req.user._id, {
             provider: 'local',
-            byUUID: true,
             sessionType: req.body.sessionType
           })
           .then(
-            function (mySession) {
-              res.status(200).json(mySession);
+            function (result) {
+              if ('session' in result) {
+                return res.status(200).json(result.session);
+              }
+              // the token for the second step, never a session
+              return res.status(200).json(result);
             },
             function (err) {
               return next(err);
@@ -152,6 +156,51 @@ export default function (
           );
       }
     );
+  }
+
+  if (config.mfa?.enabled) {
+    /** Limits for the second factor routes, per client IP */
+    const mfaSpeedLimiters = [
+      createSpeedLimiter(config.security.loginRateLimitPerIp ?? config.security.loginRateLimit, 'ip')
+    ];
+    const sendMfaError = (res: Response, next: NextFunction) => (err: any) => {
+      if (err?.status && err.status < 500) {
+        return res.status(err.status).json({ error: err.error, message: err.message });
+      }
+      return next(err);
+    };
+
+    if (!disabled.includes('login-mfa')) {
+      router.post('/login/mfa', ...mfaSpeedLimiters, (req: Request, res: Response, next: NextFunction) => {
+        user
+          .verifyMfaLogin(req.body?.mfaToken, req.body?.code)
+          .then(session => res.status(200).json(session), sendMfaError(res, next));
+      });
+    }
+
+    if (!disabled.includes('mfa-setup')) {
+      router.post('/mfa/setup', ...mfaSpeedLimiters, (req: Request, res: Response, next: NextFunction) => {
+        const setupToken = req.body?.setupToken;
+        if (typeof setupToken !== 'string') {
+          return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired code' });
+        }
+        user
+          .beginMfaSetup({ setupToken })
+          .then(info => res.status(200).json(info), sendMfaError(res, next));
+      });
+    }
+
+    if (!disabled.includes('mfa-enable')) {
+      router.post('/mfa/enable', ...mfaSpeedLimiters, (req: Request, res: Response, next: NextFunction) => {
+        const setupToken = req.body?.setupToken;
+        if (typeof setupToken !== 'string') {
+          return res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired code' });
+        }
+        user
+          .enableMfa({ setupToken, code: req.body?.code })
+          .then(result => res.status(200).json(result), sendMfaError(res, next));
+      });
+    }
   }
 
   if (!disabled.includes('refresh'))

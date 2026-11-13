@@ -417,6 +417,38 @@ couch-auth uses [express-slow-down](https://www.npmjs.com/package/express-slow-d
 
 Set `security.maxFailedLogins` to lock an account after that many wrong passwords, for `security.lockoutTime` seconds (default: 600). Failures count only while they are less than `lockoutTime` apart, and a successful login resets them. While the account is locked, every login gets the usual 401 `Invalid username or password`, also with the right password (otherwise guessing on during the lock would reveal it), and failures don't extend the lock. The right password emits `login-locked` (`userDoc`, `lockedUntil`), e.g. to tell the user by email. The same password check and lockout apply to `/request-deletion` and `/change-email`, and wrong current passwords on `/password-change` count as well (during the lock it answers 403 without checking the password). Concurrent failures are all counted. A password reset lifts the lock.
 
+## Two-factor authentication (TOTP)
+
+Optional, off by default: without the `mfa` config nothing changes.
+
+```js
+mfa: {
+  enabled: true,
+  required: false,            // true: every user must enrol before the first session
+  issuer: 'My App',           // shown in the authenticator app
+  encryptionKey: process.env.MFA_KEY, // 32 random bytes, base64 (openssl rand -base64 32)
+  window: 1,                  // accepted clock drift in 30 s steps
+  tokenLife: 300,             // seconds an mfaToken / setupToken stays valid
+  maxAttempts: 5,             // wrong codes before a token is invalidated
+  recoveryCodeCount: 10
+}
+```
+
+How it works:
+
+- After the right password, a user with MFA (or every user, with `required`) gets **no session**: `/login` answers `{ mfaRequired: true, mfaToken, expires }`, or `{ mfaSetupRequired: true, setupToken, expires }` when `required` is set and the user hasn't enrolled yet. These tokens are not CouchDB credentials and only work on the MFA routes; they are stored hashed in the user doc.
+- `POST /login/mfa` `{ mfaToken, code }` creates the session. `code` is a 6-digit TOTP code (RFC 6238, SHA-1, 30 s) or an unused recovery code. A code can't be used twice.
+- `POST /mfa/setup` `{ setupToken }` returns `{ otpauthUrl, secret, expires }` for the authenticator app (render `otpauthUrl` as QR code); `POST /mfa/enable` `{ setupToken, code }` confirms it and returns `{ recoveryCodes, session }`. Show the recovery codes once: only their hashes are stored.
+- Every session goes through `createSession()`, which refuses users who need the second factor unless it was verified: OAuth, `loginOnRegistration` and `loginOnPasswordReset` can't skip it (the last two must be `false` with `mfa.enabled`; `required` can't be combined with OAuth providers).
+- Wrong codes count towards `maxFailedLogins` (same lockout as passwords); after `maxAttempts` wrong codes the token is invalidated. All failures answer 401 `Invalid or expired code`.
+- TOTP secrets are encrypted with AES-256-GCM using `encryptionKey`. Keep the key outside the database: losing it disables every user's second factor.
+
+Library API, for apps that don't mount the router: `startLogin(userId, { provider, sessionType })` after your own password check (e.g. `passport.authenticate('local')`), `verifyMfaLogin(mfaToken, code)`, `beginMfaSetup({ setupToken } | { login })`, `enableMfa({ setupToken | login, code })`, `resetMfa(login)` (removes the factor and logs out all sessions, e.g. lost phone), `regenerateMfaRecoveryCodes(login)`, `isMfaRequired(userDoc)`. With `{ login }` the caller must have authenticated the user (e.g. a valid session plus the password).
+
+Events: `mfa-challenge` (key, kind), `mfa-verified` (key, 'totp' | 'recovery'), `mfa-failed` (key, attempts), `mfa-enabled`, `mfa-reset`, `mfa-recovery-code-used` (key, codes left), `mfa-recovery-codes-regenerated`.
+
+The routes `/login/mfa`, `/mfa/setup` and `/mfa/enable` exist only with `mfa.enabled`, are slowed down per IP and can be turned off with `disabledRoutes` (`login-mfa`, `mfa-setup`, `mfa-enable`).
+
 ### Important notes:
 - You won't be able to override the keyGenerator option, as we use usernameField from the config.
 - When activating rate limiting for the `/password-reset` route, `username` field is required in the request body!

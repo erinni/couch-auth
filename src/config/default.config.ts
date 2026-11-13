@@ -22,6 +22,14 @@ export const defaultConfig: Config = {
     ],
     forwardErrors: false
   },
+  mfa: {
+    enabled: false,
+    required: false,
+    window: 1,
+    tokenLife: 300,
+    maxAttempts: 5,
+    recoveryCodeCount: 10
+  },
   local: {
     passwordConstraints: {
       presence: true,
